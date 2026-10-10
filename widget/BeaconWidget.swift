@@ -3,6 +3,14 @@
 import AppKit
 import SwiftUI
 
+struct Cmux: Decodable {
+  let workspace: String
+  let panel: String
+  let socket: String
+  let capability: String
+  let bundle: String
+}
+
 struct Status: Decodable {
   let id: String
   let cwd: String
@@ -12,6 +20,7 @@ struct Status: Decodable {
   let state: String?
   let ended: Bool
   let updatedAt: Double
+  let cmux: Cmux?
 }
 
 struct Row: Identifiable {
@@ -62,6 +71,37 @@ final class Model: ObservableObject {
   }
 }
 
+// The app link opens a desktop session; a cmux one is focused through cmux's own CLI, with the
+// capability token its session recorded (cmux's socket refuses processes started outside it).
+func open(_ s: Status) {
+  if let url = URL(string: s.link), !s.link.isEmpty {
+    NSWorkspace.shared.open(url)
+    return
+  }
+  guard let c = s.cmux, let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: c.bundle) else { return }
+  let cli = app.appendingPathComponent("Contents/Resources/bin/cmux")
+  var env = ProcessInfo.processInfo.environment
+  env["CMUX_SOCKET_CAPABILITY"] = c.capability
+  env["CMUX_QUIET"] = "1"
+  if !c.socket.isEmpty { env["CMUX_SOCKET_PATH"] = c.socket }
+  DispatchQueue.global().async {
+    for args in [["select-workspace", "--workspace", c.workspace],
+                 ["focus-panel", "--panel", c.panel, "--workspace", c.workspace]] {
+      let p = Process()
+      p.executableURL = cli
+      p.arguments = args
+      p.environment = env
+      p.standardOutput = FileHandle.nullDevice
+      p.standardError = FileHandle.nullDevice
+      try? p.run()
+      p.waitUntilExit()
+    }
+    DispatchQueue.main.async {
+      NSRunningApplication.runningApplications(withBundleIdentifier: c.bundle).first?.activate()
+    }
+  }
+}
+
 func age(_ ms: Double, _ now: Date) -> String {
   let s = max(0, Int(now.timeIntervalSince1970 - ms / 1000))
   if s < 60 { return "\(s)s" }
@@ -91,8 +131,8 @@ struct RowView: View {
     .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(hover ? 0.1 : 0)))
     .contentShape(Rectangle())
     .onHover { hover = $0 }
-    .onTapGesture { if let url = URL(string: s.link), !s.link.isEmpty { NSWorkspace.shared.open(url) } }
-    .help(s.link.isEmpty ? "\(s.title) — terminal session" : "\(s.title) — click to open")
+    .onTapGesture { open(s) }
+    .help(!s.link.isEmpty ? "\(s.title) — click to open" : s.cmux != nil ? "\(s.title) — click to open in cmux" : "\(s.title) — terminal session")
   }
 }
 
@@ -185,6 +225,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // `swiftc -D SNAPSHOT`: render the rows to BEACON_SNAPSHOT and exit, for checks without
     // screen-recording rights. The blur behind them does not render offscreen.
     NSApp.appearance = NSAppearance(named: .aqua)
+    // BEACON_OPEN=<app session id>: run the row's click action, as a click would.
+    if let target = ProcessInfo.processInfo.environment["BEACON_OPEN"],
+       let row = model.rows.first(where: { $0.status.id == target }) { open(row.status) }
     DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [self] in
       if let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds),
          let out = ProcessInfo.processInfo.environment["BEACON_SNAPSHOT"] {

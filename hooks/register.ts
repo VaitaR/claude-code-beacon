@@ -1,9 +1,11 @@
 import type { EngineInterface as Engine, Register } from 'claude-code'
 
 import {
+  type CmuxInfo,
   type Config,
   type State,
   classifyTail,
+  cmuxOf,
   inFlightTasks,
   isPlaceholderTitle,
   isSlow,
@@ -46,6 +48,7 @@ let info: SessionInfo | null = null
 let lastTitle: string | null = null
 let ended = false
 let statusDir: Promise<string | null> | null = null
+let cmux: Promise<CmuxInfo | null> | null = null
 const lines: string[] = []
 // The file outlives a hot reload while `lines` does not: the first write seeds from its tail.
 // One file per session: every session rewrites its whole file, so a shared one loses lines.
@@ -128,8 +131,18 @@ async function writeStatus($: Engine, next: State | null) {
     }
     if (info === null) return
     const title = lastTitle ?? info.cwd.split('/').pop() ?? ''
+    cmux ??= Promise.all([
+      $.env.get('CMUX_WORKSPACE_ID'),
+      $.env.get('CMUX_PANEL_ID'),
+      $.env.get('CMUX_SURFACE_ID'),
+      $.env.get('CMUX_SOCKET_PATH'),
+      $.env.get('CMUX_SOCKET_CAPABILITY'),
+      $.env.get('CMUX_BUNDLE_ID'),
+    ]).then(([w, p, s, path, cap, bundle]) =>
+      cmuxOf({ CMUX_WORKSPACE_ID: w, CMUX_PANEL_ID: p, CMUX_SURFACE_ID: s, CMUX_SOCKET_PATH: path, CMUX_SOCKET_CAPABILITY: cap, CMUX_BUNDLE_ID: bundle }),
+    )
     const file = statusFileName(await $.session.id())
-    await $.fs.write(`${dir}/${file}`, statusRecord(info, title, next, ended, Date.now()))
+    await $.fs.write(`${dir}/${file}`, statusRecord(info, title, next, ended, Date.now(), await cmux))
   } catch (err) {
     debug($, `status write failed: ${err instanceof Error ? err.message : String(err)}`)
   }

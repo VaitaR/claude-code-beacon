@@ -53,7 +53,11 @@ widget/install.sh --uninstall
 - Click a row to open the session in the app; click the header to collapse to the counts;
   drag anywhere to move; right-click for opacity, hiding or clearing finished rows, and quit.
 - Hidden: archived sessions, ✅ older than 3 hours, any other state older than 24 hours.
-- A terminal session shows under its folder name and has no link to open.
+- A terminal session shows under its folder name. One started inside cmux opens in cmux: the
+  status file also records its workspace, panel and the socket capability token cmux gave the
+  session, because cmux's socket refuses processes started outside it. The token sits in
+  `~/.claude/state` (mode 0700) and is readable by the same processes that could already read
+  it from the session's environment. Any other terminal session has nothing to open.
 - A session whose process dies without `session.end` keeps its last state until the 24-hour
   cutoff; the archive flag is read only when the mod writes, so archiving an idle session does
   not hide it.

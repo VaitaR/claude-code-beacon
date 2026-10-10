@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { inFlightTasks, isPlaceholderTitle, isSlow, isStale, notifiedTasks, parseConfig, sessionOf, startedTasks, statusFileName, statusRecord, stripGlyph, titleOf, verdictOf, withGlyph } from '../hooks/core'
+import { cmuxOf, inFlightTasks, isPlaceholderTitle, isSlow, isStale, notifiedTasks, parseConfig, sessionOf, startedTasks, statusFileName, statusRecord, stripGlyph, titleOf, verdictOf, withGlyph } from '../hooks/core'
 
 test('a glyph is prefixed once and stripped clean', () => {
   expect(withGlyph('Fix the parser', 'working')).toBe('🔵 Fix the parser')
@@ -73,4 +73,16 @@ test('the widget status record carries the app session and a glyph-free title', 
   expect(JSON.parse(statusRecord(info!, '⏳ Fix it', 'needs-you', false, 5))).toEqual({ ...info, title: 'Fix it', state: 'needs-you', ended: false, updatedAt: 5 })
   expect(statusFileName('local_ab-1')).toBe('local_ab-1.json')
   expect(statusFileName('../../etc/x')).toBe('______etc_x.json')
+})
+
+test('a cmux session records where its tab is; any other session records nothing', () => {
+  const env = { CMUX_WORKSPACE_ID: 'W', CMUX_SURFACE_ID: 'S', CMUX_SOCKET_PATH: '/s.sock', CMUX_SOCKET_CAPABILITY: 'v1.t' }
+  const c = cmuxOf(env)
+  expect(c).toEqual({ workspace: 'W', panel: 'S', socket: '/s.sock', capability: 'v1.t', bundle: 'com.cmuxterm.app' })
+  expect(cmuxOf({ ...env, CMUX_PANEL_ID: 'P' })?.panel).toBe('P')
+  expect(cmuxOf({ ...env, CMUX_SOCKET_CAPABILITY: undefined })).toBe(null)
+  expect(cmuxOf({})).toBe(null)
+  const info = { id: 'x', cwd: '/r', link: '', archived: false }
+  expect(JSON.parse(statusRecord(info, 'T', 'done', false, 1, c)).cmux).toEqual(c)
+  expect('cmux' in JSON.parse(statusRecord(info, 'T', 'done', false, 1))).toBe(false)
 })

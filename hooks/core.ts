@@ -142,13 +142,29 @@ export const sessionOf = (result: { content: ReadonlyArray<{ type: string; text?
  */
 export const statusFileName = (id: string) => `${id.replace(/[^A-Za-z0-9_-]/g, '_')}.json`
 
+/**
+ * Where a session started inside the cmux terminal lives, so the widget can focus its tab. cmux's
+ * socket admits only processes started inside cmux; the capability token cmux hands those
+ * processes is what lets the widget, started outside it, through.
+ */
+export type CmuxInfo = { workspace: string; panel: string; socket: string; capability: string; bundle: string }
+
+export const cmuxOf = (env: Readonly<Record<string, string | undefined>>): CmuxInfo | null => {
+  const workspace = env.CMUX_WORKSPACE_ID ?? ''
+  const panel = env.CMUX_PANEL_ID ?? env.CMUX_SURFACE_ID ?? ''
+  const capability = env.CMUX_SOCKET_CAPABILITY ?? ''
+  if (workspace === '' || panel === '' || capability === '') return null
+  return { workspace, panel, socket: env.CMUX_SOCKET_PATH ?? '', capability, bundle: env.CMUX_BUNDLE_ID ?? 'com.cmuxterm.app' }
+}
+
 export const statusRecord = (
   info: SessionInfo,
   title: string,
   state: State | null,
   ended: boolean,
   now: number,
-) => `${JSON.stringify({ ...info, title: stripGlyph(title), state, ended, updatedAt: now })}\n`
+  cmux: CmuxInfo | null = null,
+) => `${JSON.stringify({ ...info, title: stripGlyph(title), state, ended, updatedAt: now, ...(cmux ? { cmux } : {}) })}\n`
 
 // Titles the app has not named yet: renaming one would freeze it before the app's own title lands.
 export const isPlaceholderTitle = (title: string) => /^(?:new session|untitled|new conversation)$/i.test(stripGlyph(title).trim())
