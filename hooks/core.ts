@@ -62,7 +62,9 @@ export const verdictOf = (text: string | undefined): Verdict => {
   if (MARKER.test(tail.join('\n'))) return 'needs-you'
   const last = tail[tail.length - 1] ?? ''
   if (/\?\s*(?:\*\*|_)?\s*$/.test(last)) return 'needs-you'
-  const end = tail.slice(-3).join('\n')
+  // Unwrapped paragraphs are single lines, so three of them can be most of a reply: only the
+  // closing stretch counts, or a report that merely describes a choice reads as asking one.
+  const end = tail.slice(-3).join('\n').slice(-400)
   if (ASKING_EN.test(end) || ASKING_RU.test(end)) return 'needs-you'
   if (t.length < 400) return 'done'
   return 'unsure'

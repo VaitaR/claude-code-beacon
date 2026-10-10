@@ -18,6 +18,12 @@ test('a reply that asks the person reads as needs-you', () => {
   expect(verdictOf('Done with step one.\n\nNEEDS YOU: pick the retention window (7d or 30d).')).toBe('needs-you')
 })
 
+test('a request mentioned far above the ending does not count', () => {
+  const report = `The glyph now reacts to phrases such as "should I" and "which option" in the reply. ${'Filler sentence about the change. '.repeat(14)}\n\nCommitted and verified; nothing is in flight.`
+  expect(verdictOf(report)).toBe('unsure')
+  expect(verdictOf('Done.\n\nShould I merge it now, or wait?\n- yes\n- no')).toBe('needs-you')
+})
+
 test('a plain report reads as done, a long unclear one as unsure', () => {
   expect(verdictOf('Fixed the off-by-one in the pager. Verified by the unit test.')).toBe('done')
   expect(verdictOf('')).toBe('done')

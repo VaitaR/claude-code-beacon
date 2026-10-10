@@ -32,12 +32,18 @@ let titled = false
 let renaming: Promise<void> = Promise.resolve()
 let mcpBroken = false
 const lines: string[] = []
+// The file outlives a hot reload while `lines` does not: the first write seeds from its tail.
+let seeded: Promise<void> | null = null
 
 function debug($: Engine, text: string) {
   $.ui.log(`beacon: ${text}`, { to: 'debug' })
   if (cfg.debugLog === '') return
+  seeded ??= $.fs
+    .read(cfg.debugLog)
+    .then(old => { lines.unshift(...old.split('\n').filter(l => l !== '').slice(-150)) })
+    .catch(() => undefined)
   lines.push(`${new Date().toISOString()} ${text}`)
-  void $.fs.write(cfg.debugLog, `${lines.slice(-200).join('\n')}\n`).catch(() => undefined)
+  void seeded.then(() => $.fs.write(cfg.debugLog, `${lines.slice(-200).join('\n')}\n`)).catch(() => undefined)
 }
 
 // The call runs under the person's own PreToolUse hooks. One of them denies a repeated identical
