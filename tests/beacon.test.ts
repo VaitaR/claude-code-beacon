@@ -44,8 +44,8 @@ test('task ids are read from results and completion notices alike', () => {
 })
 
 test('config, titles and the MCP result', () => {
-  expect(parseConfig({})).toEqual({ slowMs: 60_000, classify: true, debugLog: '' })
-  expect(parseConfig({ slowSeconds: 1, classify: false, debugLog: '/tmp/b.log' })).toEqual({ slowMs: 5_000, classify: false, debugLog: '/tmp/b.log' })
+  expect(parseConfig({})).toEqual({ slowMs: 60_000, classify: false, debugLog: '' })
+  expect(parseConfig({ slowSeconds: 1, classify: true, debugLog: '/tmp/b.log' })).toEqual({ slowMs: 5_000, classify: true, debugLog: '/tmp/b.log' })
   expect(titleOf({ content: [{ type: 'text', text: '{"title":"Hello"}' }] })).toBe('Hello')
   expect(titleOf({ content: [{ type: 'text', text: 'not json' }] })).toBe(null)
   expect(isPlaceholderTitle('New session')).toBe(true)

@@ -20,8 +20,9 @@ In order, on the last reply's closing lines:
 
 1. the convention line `NEEDS YOU: <what>` (see `tools/instructions/core.md`, Answer shape);
 2. a closing line that ends with `?`, or English/Russian phrasings of a request for a decision;
-3. a reply under 400 characters with neither is `done`; a longer one goes to the engine's
-   small model (`$.model.classify`) unless `classify` is off.
+3. a reply with neither is `done`. With `classify` on, a reply over 400 characters goes to the
+   engine's small model (`$.model.classify`) instead; off by default, because that model
+   reads a long report that merely mentions a possible choice as a question.
 
 Tool-driven asks (permission dialogs, `AskUserQuestion`, `ExitPlanMode`) are seen directly and
 need no reading.
@@ -40,7 +41,7 @@ with "no connected MCP tool", is logged once, and the mod stays quiet.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `slowSeconds` | `60` | foreground tool call length that turns 🔵 into ⏳ |
-| `classify` | `true` | ask the small model when the heuristics cannot read a long reply |
+| `classify` | `false` | ask the small model when the heuristics cannot read a long reply |
 | `debugLog` | `""` | absolute path of a file the mod writes its diagnostics to |
 
 ## Limits

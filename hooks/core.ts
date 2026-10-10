@@ -25,7 +25,9 @@ export type Config = { slowMs: number; classify: boolean; debugLog: string }
 
 export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => ({
   slowMs: Math.max(5, typeof o.slowSeconds === 'number' ? o.slowSeconds : 60) * 1000,
-  classify: typeof o.classify === 'boolean' ? o.classify : true,
+  // Off by default: the classifier called a long report that merely mentioned a choice a question,
+  // twice in one afternoon. The marker line and the question rules are the contract.
+  classify: typeof o.classify === 'boolean' ? o.classify : false,
   debugLog: typeof o.debugLog === 'string' ? o.debugLog : '',
 })
 
