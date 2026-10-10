@@ -114,8 +114,9 @@ function endTurn() {
 }
 
 // Background work the main loop started and has not yet been notified about: ids from the Bash
-// and Agent results, cleared by the completion notice, which opens the next turn when the model
-// is idle and lands inside a tool result when it is not.
+// and Agent results, cleared by the completion notice. That notice is a prompt.submit of
+// origin `task-notification`: the next turn's text when the session is idle, a mid-turn
+// submission when it is not (it never shows in a tool result).
 const pending = new Set<string>()
 const LIVE_AGENT = new Set(['pending', 'running', 'waiting'])
 
@@ -146,12 +147,20 @@ export const register: Register = (on, options) => {
     const messages = await $.session.messages()
     const lastAnswer = [...messages].reverse().find(m => m.role === 'assistant')?.text
     titled = messages.length > 0
+    debug($, `loaded: ${messages.length} messages, pending cleared`)
     if (titled) await settle($, lastAnswer)
     $.clock.every(TICK_MS, () => {
       if (turnActive && !asking && isSlow(inFlight, Date.now(), cfg.slowMs)) publish($, 'waiting')
     })
     return next(e)
   })
+
+  on('prompt.submit', ($, e, next) => {
+    const ids = notifiedTasks(e.text)
+    for (const id of ids) pending.delete(id)
+    if (ids.length > 0) debug($, `notified ${e.origin.kind}${e.turnId === undefined ? '' : ' mid-turn'}: ${ids.join(',')}`)
+    return next(e)
+  }).catch(($, e, next) => next(e))
 
   on('turn.start', ($, e, next) => {
     turnActive = true
@@ -173,9 +182,10 @@ export const register: Register = (on, options) => {
     if (e.tool === 'TaskStop' && e.task_id !== undefined) pending.delete(e.task_id)
     const ran = await next(e)
     inFlight = null
-    const text = `${ran.text ?? ''}\n${typeof ran.result === 'string' ? ran.result : JSON.stringify(ran.result ?? '')}`
-    if (ran.deny === undefined && ran.isError !== true) for (const id of startedTasks(text)) pending.add(id)
-    for (const id of notifiedTasks(text)) pending.delete(id)
+    if (ran.deny === undefined && ran.isError !== true) {
+      const text = `${ran.text ?? ''}\n${typeof ran.result === 'string' ? ran.result : JSON.stringify(ran.result ?? '')}`
+      for (const id of startedTasks(text)) pending.add(id)
+    }
     if (asking) {
       asking = false
       if (turnActive) publish($, 'working')
