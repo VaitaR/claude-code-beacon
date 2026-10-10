@@ -9,7 +9,7 @@ session title, so the sidebar says what every session is doing without opening i
 | ⏳ | waiting | the turn ended with background tasks or a session cron still in flight, or one foreground tool call has run longer than `slowSeconds` |
 | ❓ | needs you | a permission request, `AskUserQuestion` or plan approval is open, or the last reply asks you for a decision, answer or confirmation |
 | ✅ | done | the turn ended, nothing is in flight, the last reply asks for nothing |
-| ⚠️ | error | the turn ended on an API error, rate limit or overflow; an interrupt by you stays ✅ |
+| ⚠️ | error | the turn ended on an API error, rate limit or overflow, or a ⏳ session has waited `staleMinutes` without a wake-up; an interrupt by you stays ✅ |
 
 The sidebar's own icon column shows the session's kind (pull request, worktree) and only one
 dot for "needs input"; it cannot tell a prose question from a report, nor a session paused on
@@ -42,6 +42,7 @@ with "no connected MCP tool", is logged once, and the mod stays quiet.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `slowSeconds` | `60` | foreground tool call length that turns 🔵 into ⏳ |
+| `staleMinutes` | `60` | how long a ⏳ session may wait for its wake-up before it turns ⚠️ (the operating rules cap a self-chosen wait at 55 minutes) |
 | `classify` | `false` | ask the small model when the heuristics cannot read a long reply |
 | `debugLog` | `""` | absolute path of a file the mod writes its diagnostics to |
 

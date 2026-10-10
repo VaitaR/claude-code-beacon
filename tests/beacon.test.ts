@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { inFlightTasks, isPlaceholderTitle, isSlow, notifiedTasks, parseConfig, startedTasks, stripGlyph, titleOf, verdictOf, withGlyph } from '../hooks/core'
+import { inFlightTasks, isPlaceholderTitle, isSlow, isStale, notifiedTasks, parseConfig, startedTasks, stripGlyph, titleOf, verdictOf, withGlyph } from '../hooks/core'
 
 test('a glyph is prefixed once and stripped clean', () => {
   expect(withGlyph('Fix the parser', 'working')).toBe('🔵 Fix the parser')
@@ -52,8 +52,11 @@ test('task ids are read from results and completion notices alike', () => {
 })
 
 test('config, titles and the MCP result', () => {
-  expect(parseConfig({})).toEqual({ slowMs: 60_000, classify: false, debugLog: '' })
-  expect(parseConfig({ slowSeconds: 1, classify: true, debugLog: '/tmp/b.log' })).toEqual({ slowMs: 5_000, classify: true, debugLog: '/tmp/b.log' })
+  expect(parseConfig({})).toEqual({ slowMs: 60_000, staleMs: 3_600_000, classify: false, debugLog: '' })
+  expect(parseConfig({ slowSeconds: 1, staleMinutes: 0, classify: true, debugLog: '/tmp/b.log' })).toEqual({ slowMs: 5_000, staleMs: 60_000, classify: true, debugLog: '/tmp/b.log' })
+  expect(isStale(null, 10_000_000, 3_600_000)).toBe(false)
+  expect(isStale(0, 3_599_000, 3_600_000)).toBe(false)
+  expect(isStale(0, 3_600_000, 3_600_000)).toBe(true)
   expect(titleOf({ content: [{ type: 'text', text: '{"title":"Hello"}' }] })).toBe('Hello')
   expect(titleOf({ content: [{ type: 'text', text: 'not json' }] })).toBe(null)
   expect(isPlaceholderTitle('New session')).toBe(true)

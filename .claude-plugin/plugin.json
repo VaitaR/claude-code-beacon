@@ -12,6 +12,12 @@
       "type": "number",
       "default": 60
     },
+    "staleMinutes": {
+      "title": "Stale wait threshold (minutes)",
+      "description": "A session that ended its turn waiting for background work and has not been woken within this many minutes turns from waiting to error",
+      "type": "number",
+      "default": 60
+    },
     "classify": {
       "title": "Classify unclear endings with the small model",
       "description": "When the heuristics cannot tell whether a long last reply needs your answer, ask the engine's small model (one short completion per turn end). It tends to read a report that mentions a choice as a question.",

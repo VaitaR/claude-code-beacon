@@ -7,6 +7,7 @@ import {
   inFlightTasks,
   isPlaceholderTitle,
   isSlow,
+  isStale,
   notifiedTasks,
   parseConfig,
   startedTasks,
@@ -28,6 +29,7 @@ let state: State | null = null
 let turnActive = false
 let asking = false
 let inFlight: { tool: string; at: number } | null = null
+let waitingSince: number | null = null
 let titled = false
 let renaming: Promise<void> = Promise.resolve()
 let mcpBroken = false
@@ -91,6 +93,7 @@ function rename($: Engine, next: State | null) {
 function publish($: Engine, next: State | null) {
   if (next === state) return
   state = next
+  waitingSince = next === 'waiting' ? Date.now() : null
   if (titled || next === null) rename($, next)
 }
 
@@ -156,7 +159,13 @@ export const register: Register = (on, options) => {
     debug($, `loaded: ${messages.length} messages, pending cleared`)
     if (titled) await settle($, lastAnswer)
     $.clock.every(TICK_MS, () => {
-      if (turnActive && !asking && isSlow(inFlight, Date.now(), cfg.slowMs)) publish($, 'waiting')
+      const now = Date.now()
+      if (turnActive && !asking && isSlow(inFlight, now, cfg.slowMs)) publish($, 'waiting')
+      // A wake-up that has not come within the hour is not coming: the wait is broken, not long.
+      if (!turnActive && state === 'waiting' && isStale(waitingSince, now, cfg.staleMs)) {
+        debug($, `waiting ${Math.round((now - (waitingSince ?? now)) / 60_000)} min, ids=${[...pending].join(',')}: stale`)
+        publish($, 'error')
+      }
     })
     return next(e)
   })

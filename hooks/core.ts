@@ -22,10 +22,13 @@ export const withGlyph = (title: string, state: State | null) => {
   return state === null ? base : `${GLYPH[state]} ${base}`
 }
 
-export type Config = { slowMs: number; classify: boolean; debugLog: string }
+export type Config = { slowMs: number; staleMs: number; classify: boolean; debugLog: string }
 
 export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => ({
   slowMs: Math.max(5, typeof o.slowSeconds === 'number' ? o.slowSeconds : 60) * 1000,
+  // A self-chosen wait is capped at 55 minutes by the operating rules; a session still waiting
+  // past the hour has lost its wake-up, so the default sits just above that cap.
+  staleMs: Math.max(1, typeof o.staleMinutes === 'number' ? o.staleMinutes : 60) * 60_000,
   // Off by default: the classifier called a long report that merely mentioned a choice a question,
   // twice in one afternoon. The marker line and the question rules are the contract.
   classify: typeof o.classify === 'boolean' ? o.classify : false,
@@ -92,6 +95,10 @@ export const startedTasks = (text: string) => idsIn(text, STARTED_ID)
 /** Task ids a completion notice names; it arrives in a turn's opening text or inside a tool
  *  result, whichever the model was in when the task ended. */
 export const notifiedTasks = (text: string) => idsIn(text, NOTIFIED_ID)
+
+/** Whether a session that ended its turn waiting has waited past the point where a wake-up is still expected. */
+export const isStale = (waitingSince: number | null, now: number, staleMs: number) =>
+  waitingSince !== null && now - waitingSince >= staleMs
 
 /** Whether a foreground call has run long enough to count as waiting rather than working. */
 export const isSlow = (call: { tool: string; at: number } | null, now: number, slowMs: number) =>
