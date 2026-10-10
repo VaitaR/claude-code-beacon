@@ -50,9 +50,11 @@ widget/install.sh --uninstall
 ```
 
 - Rows sort by attention (❓ ⚠️ ⏳ 🔵 ✅); the time is how long the session has been in its state.
-- Click a row to open the session in the app; click the header to collapse to the counts;
-  drag anywhere to move; right-click for opacity, hiding or clearing finished rows, and quit.
-- Hidden: archived sessions, ✅ older than 3 hours, any other state older than 24 hours.
+- Click a row to open the session; a dimmed row has nothing to open. Drag the header to move
+  the panel, click it to collapse to the counts; right-click for opacity, hiding or clearing
+  finished rows, and quit. Past 360 points the list scrolls.
+- Hidden: archived sessions, terminal sessions that ended (headless `claude -p` runs included),
+  ✅ older than 3 hours, any other state older than 24 hours.
 - A terminal session shows under its folder name. One started inside cmux opens in cmux: the
   status file also records its workspace, panel and the socket capability token cmux gave the
   session, because cmux's socket refuses processes started outside it. The token sits in

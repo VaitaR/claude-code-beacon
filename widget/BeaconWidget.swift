@@ -3,7 +3,7 @@
 import AppKit
 import SwiftUI
 
-struct Cmux: Decodable {
+struct Cmux: Decodable, Equatable {
   let workspace: String
   let panel: String
   let socket: String
@@ -11,7 +11,7 @@ struct Cmux: Decodable {
   let bundle: String
 }
 
-struct Status: Decodable {
+struct Status: Decodable, Equatable {
   let id: String
   let cwd: String
   let link: String
@@ -21,9 +21,10 @@ struct Status: Decodable {
   let ended: Bool
   let updatedAt: Double
   let cmux: Cmux?
+  var openable: Bool { !link.isEmpty || cmux != nil }
 }
 
-struct Row: Identifiable {
+struct Row: Identifiable, Equatable {
   let status: Status
   let file: URL
   var id: String { status.id }
@@ -34,6 +35,9 @@ let glyphs = ["needs-you": "❓", "error": "⚠️", "waiting": "⏳", "working"
 let rank = ["needs-you": 0, "error": 1, "waiting": 2, "working": 3, "done": 4]
 let liveHours = 24.0
 let doneHours = 3.0
+let maxListHeight: CGFloat = 360
+let rowHeight: CGFloat = 36
+let rowSpacing: CGFloat = 2
 
 final class Model: ObservableObject {
   @Published var rows: [Row] = []
@@ -52,17 +56,21 @@ final class Model: ObservableObject {
       guard let data = try? Data(contentsOf: file),
             let s = try? JSONDecoder().decode(Status.self, from: data),
             let state = s.state, !s.archived else { return nil }
+      // A terminal session that ended has no process left to return to (headless `claude -p`
+      // runs land here too); an app session that ended still sits in the sidebar.
+      if s.ended && s.link.isEmpty { return nil }
       let ageHours = (nowMs - s.updatedAt) / 3_600_000
       if state == "done" { if !showDone || ageHours > doneHours { return nil } }
       else if ageHours > liveHours { return nil }
       return Row(status: s, file: file)
     }
     // One app session can own two files (an older mod build named them by app id); the newest wins.
-    rows = Dictionary(grouping: found, by: \.status.id).values.compactMap { $0.max { $0.status.updatedAt < $1.status.updatedAt } }
+    let next = Dictionary(grouping: found, by: \.status.id).values.compactMap { $0.max { $0.status.updatedAt < $1.status.updatedAt } }
     .sorted {
       let a = rank[$0.status.state ?? ""] ?? 9, b = rank[$1.status.state ?? ""] ?? 9
       return a != b ? a < b : $0.status.updatedAt > $1.status.updatedAt
     }
+    if next != rows { rows = next }
   }
 
   func clearFinished() {
@@ -127,17 +135,26 @@ struct RowView: View {
       Spacer(minLength: 4)
       Text(age(s.updatedAt, now)).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
     }
-    .padding(.horizontal, 8).padding(.vertical, 4)
-    .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(hover ? 0.1 : 0)))
+    .padding(.horizontal, 8)
+    .frame(height: rowHeight)
+    .opacity(s.openable ? 1 : 0.55)
+    .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(hover && s.openable ? 0.1 : 0)))
     .contentShape(Rectangle())
     .onHover { hover = $0 }
-    .onTapGesture { open(s) }
+    .onTapGesture { if s.openable { open(s) } }
     .help(!s.link.isEmpty ? "\(s.title) — click to open" : s.cmux != nil ? "\(s.title) — click to open in cmux" : "\(s.title) — terminal session")
   }
 }
 
 struct PanelView: View {
   @ObservedObject var model: Model
+
+  // Rows have a fixed height so the list height is known up front: a scroll view sized by
+  // measuring its own content starts at zero and never lays the content out.
+  var listHeight: CGFloat {
+    let n = CGFloat(model.rows.count)
+    return n * rowHeight + max(0, n - 1) * rowSpacing
+  }
 
   var counts: String {
     let order = ["needs-you", "error", "waiting", "working", "done"]
@@ -157,10 +174,20 @@ struct PanelView: View {
       }
       .padding(.horizontal, 8).padding(.vertical, 4)
       .contentShape(Rectangle())
+      // Only the header moves the panel: a window-background drag would turn a click on a row
+      // that moved a pixel into a drag and swallow it.
+      .gesture(WindowDragGesture())
       .onTapGesture { model.compact.toggle() }
-      .help("Click to collapse or expand; right-click for options")
-      if !model.compact {
-        ForEach(model.rows) { RowView(row: $0, now: model.now) }
+      .help("Drag to move, click to collapse or expand; right-click for options")
+      if !model.compact && !model.rows.isEmpty {
+        // The list scrolls past maxListHeight; below it the panel fits its rows exactly.
+        ScrollView(.vertical) {
+          VStack(alignment: .leading, spacing: rowSpacing) {
+            ForEach(model.rows) { RowView(row: $0, now: model.now) }
+          }
+        }
+        .scrollIndicators(listHeight > maxListHeight ? .automatic : .never)
+        .frame(height: min(listHeight, maxListHeight))
       }
     }
     .padding(6)
@@ -173,10 +200,17 @@ final class Panel: NSPanel {
   override var canBecomeKey: Bool { false }
 }
 
+// The widget's app is never active, so without first-mouse a click on a row can be spent on
+// activating the window instead of reaching the row.
+final class Hosting<V: View>: NSHostingView<V> {
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+  override var mouseDownCanMoveWindow: Bool { false }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   let model = Model()
   var panel: Panel!
-  var hosting: NSHostingView<PanelView>!
+  var hosting: Hosting<PanelView>!
   @AppStorage("opacity") var opacity = 0.85
 
   func applicationDidFinishLaunching(_ note: Notification) {
@@ -184,7 +218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     panel.level = .floating
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-    panel.isMovableByWindowBackground = true
+    panel.isMovableByWindowBackground = false
     panel.backgroundColor = .clear
     panel.isOpaque = false
     panel.hasShadow = true
@@ -198,7 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     blur.wantsLayer = true
     blur.layer?.cornerRadius = 12
     blur.layer?.masksToBounds = true
-    hosting = NSHostingView(rootView: PanelView(model: model))
+    hosting = Hosting(rootView: PanelView(model: model))
     hosting.translatesAutoresizingMaskIntoConstraints = false
     blur.addSubview(hosting)
     NSLayoutConstraint.activate([
