@@ -5,7 +5,7 @@ session title, so the sidebar says what every session is doing without opening i
 
 | Glyph | State | Set when |
 | --- | --- | --- |
-| 🟢 | working | a turn is running |
+| 🔵 | working | a turn is running |
 | ⏳ | waiting | the turn ended with background tasks or a session cron still in flight, or one foreground tool call has run longer than `slowSeconds` |
 | ❓ | needs you | a permission request, `AskUserQuestion` or plan approval is open, or the last reply asks you for a decision, answer or confirmation |
 | ✅ | done | the turn ended, nothing is in flight, the last reply asks for nothing |
@@ -39,7 +39,7 @@ with "no connected MCP tool", is logged once, and the mod stays quiet.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `slowSeconds` | `60` | foreground tool call length that turns 🟢 into ⏳ |
+| `slowSeconds` | `60` | foreground tool call length that turns 🔵 into ⏳ |
 | `classify` | `true` | ask the small model when the heuristics cannot read a long reply |
 | `debugLog` | `""` | absolute path of a file the mod writes its diagnostics to |
 

@@ -3,8 +3,8 @@ import { expect, test } from 'claude-code/testing'
 import { inFlightTasks, isPlaceholderTitle, isSlow, notifiedTasks, parseConfig, startedTasks, stripGlyph, titleOf, verdictOf, withGlyph } from '../hooks/core'
 
 test('a glyph is prefixed once and stripped clean', () => {
-  expect(withGlyph('Fix the parser', 'working')).toBe('🟢 Fix the parser')
-  expect(withGlyph('🟢 Fix the parser', 'needs-you')).toBe('❓ Fix the parser')
+  expect(withGlyph('Fix the parser', 'working')).toBe('🔵 Fix the parser')
+  expect(withGlyph('🔵 Fix the parser', 'needs-you')).toBe('❓ Fix the parser')
   expect(withGlyph('⏳ Fix the parser', null)).toBe('Fix the parser')
   expect(stripGlyph('✅ Done thing')).toBe('Done thing')
   expect(stripGlyph('No glyph here')).toBe('No glyph here')
@@ -49,6 +49,6 @@ test('config, titles and the MCP result', () => {
   expect(titleOf({ content: [{ type: 'text', text: '{"title":"Hello"}' }] })).toBe('Hello')
   expect(titleOf({ content: [{ type: 'text', text: 'not json' }] })).toBe(null)
   expect(isPlaceholderTitle('New session')).toBe(true)
-  expect(isPlaceholderTitle('🟢 New session')).toBe(true)
+  expect(isPlaceholderTitle('🔵 New session')).toBe(true)
   expect(isPlaceholderTitle('Fix IBC Eureka')).toBe(false)
 })

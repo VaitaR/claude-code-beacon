@@ -3,15 +3,16 @@
 
 export type State = 'working' | 'waiting' | 'needs-you' | 'done'
 
+// Blue for the live state: a green dot sat next to the green check and read as the same thing.
 export const GLYPH: Record<State, string> = {
-  working: '🟢',
+  working: '🔵',
   waiting: '⏳',
   'needs-you': '❓',
   done: '✅',
 }
 
 // Every glyph this mod ever wrote, so a title written by an older version still strips clean.
-const LEADING_GLYPH = /^(?:🟢|⏳|❓|✅|🔴|⏸)️?\s*/u
+const LEADING_GLYPH = /^(?:🔵|🟢|⏳|❓|✅|🔴|⏸)️?\s*/u
 
 export const stripGlyph = (title: string) => title.replace(LEADING_GLYPH, '')
 
