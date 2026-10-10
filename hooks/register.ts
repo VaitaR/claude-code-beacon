@@ -30,22 +30,31 @@ let turnActive = false
 let asking = false
 let inFlight: { tool: string; at: number } | null = null
 let waitingSince: number | null = null
-let titled = false
 let renaming: Promise<void> = Promise.resolve()
 let mcpBroken = false
+// A new session's title is generated during its first turn, after turn.start: the tick
+// retries the rename until a title exists.
+let untitled = false
 const lines: string[] = []
 // The file outlives a hot reload while `lines` does not: the first write seeds from its tail.
-let seeded: Promise<void> | null = null
+// One file per session: every session rewrites its whole file, so a shared one loses lines.
+let logPath: Promise<string> | null = null
 
 function debug($: Engine, text: string) {
   $.ui.log(`beacon: ${text}`, { to: 'debug' })
   if (cfg.debugLog === '') return
-  seeded ??= $.fs
-    .read(cfg.debugLog)
-    .then(old => { lines.unshift(...old.split('\n').filter(l => l !== '').slice(-150)) })
-    .catch(() => undefined)
+  logPath ??= $.session
+    .id()
+    .then(id => cfg.debugLog.replace(/(\.log)?$/, `.${id.slice(0, 8)}$1`))
+    .then(path =>
+      $.fs
+        .read(path)
+        .then(old => { lines.unshift(...old.split('\n').filter(l => l !== '').slice(-150)) })
+        .catch(() => undefined)
+        .then(() => path),
+    )
   lines.push(`${new Date().toISOString()} ${text}`)
-  void seeded.then(() => $.fs.write(cfg.debugLog, `${lines.slice(-200).join('\n')}\n`)).catch(() => undefined)
+  void logPath.then(path => $.fs.write(path, `${lines.slice(-200).join('\n')}\n`)).catch(() => undefined)
 }
 
 // The call runs under the person's own PreToolUse hooks. One of them denies a repeated identical
@@ -76,9 +85,11 @@ function rename($: Engine, next: State | null) {
       }
       const title = titleOf(got)
       if (title === null || isPlaceholderTitle(title)) {
-        debug($, `no title to prefix: ${JSON.stringify(got.content).slice(0, 120)}`)
+        if (!untitled) debug($, `no title to prefix: ${JSON.stringify(got.content).slice(0, 120)}`)
+        untitled = true
         return
       }
+      untitled = false
       const wanted = withGlyph(title, next)
       if (wanted === title) return
       const set = await callSession($, 'set_session_title', { session_id: 'self', title: wanted })
@@ -94,7 +105,7 @@ function publish($: Engine, next: State | null) {
   if (next === state) return
   state = next
   waitingSince = next === 'waiting' ? Date.now() : null
-  if (titled || next === null) rename($, next)
+  rename($, next)
 }
 
 async function settle($: Engine, answer: string | undefined) {
@@ -142,7 +153,6 @@ async function inFlightCount($: Engine) {
 // The end of a main-loop turn: what is still running decides between waiting and a verdict.
 async function finish($: Engine, answer: string | undefined, via: string) {
   endTurn()
-  titled = true
   const count = await inFlightCount($)
   debug($, `${via}: pending=${count} ids=${[...pending].join(',')} answer=${(answer ?? '').length} chars`)
   if (count > 0) publish($, 'waiting')
@@ -155,11 +165,11 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const messages = await $.session.messages()
     const lastAnswer = [...messages].reverse().find(m => m.role === 'assistant')?.text
-    titled = messages.length > 0
     debug($, `loaded: ${messages.length} messages, pending cleared`)
-    if (titled) await settle($, lastAnswer)
+    if (messages.length > 0) await settle($, lastAnswer)
     $.clock.every(TICK_MS, () => {
       const now = Date.now()
+      if (untitled && state !== null) rename($, state)
       if (turnActive && !asking && isSlow(inFlight, now, cfg.slowMs)) publish($, 'waiting')
       // A wake-up that has not come within the hour is not coming: the wait is broken, not long.
       if (!turnActive && state === 'waiting' && isStale(waitingSince, now, cfg.staleMs)) {
@@ -234,7 +244,6 @@ export const register: Register = (on, options) => {
     const listed = inFlightTasks(e.background_tasks) + (e.session_crons?.length ?? 0)
     if (listed > 0) {
       endTurn()
-      titled = true
       publish($, 'waiting')
     } else await finish($, e.last_assistant_message, 'Stop')
     return next(e)
@@ -246,7 +255,6 @@ export const register: Register = (on, options) => {
     // overflow ended the work unfinished and would otherwise pass as done.
     if (e.reason === 'aborted' || e.reason === 'error') {
       endTurn()
-      titled = true
       publish($, e.reason === 'error' ? 'error' : 'done')
     } else await finish($, e.answer, `turn.complete(${e.reason})`)
     return next(e)

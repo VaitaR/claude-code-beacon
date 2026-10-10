@@ -32,7 +32,8 @@ need no reading.
 
 The desktop app starts sessions without `--plugin-dir`, so the mod loads from
 `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json` (`env` block, `:`-separated with other
-mod folders). New sessions pick it up; running ones do not.
+mod folders). A session picks it up when the app starts its process: a new session, or an idle one on its
+next message. A process already running when the setting changed never does.
 
 In a terminal session the app's `ccd_session_mgmt` server is absent: the first rename fails
 with "no connected MCP tool", is logged once, and the mod stays quiet.
@@ -44,7 +45,7 @@ with "no connected MCP tool", is logged once, and the mod stays quiet.
 | `slowSeconds` | `60` | foreground tool call length that turns 🔵 into ⏳ |
 | `staleMinutes` | `60` | how long a ⏳ session may wait for its wake-up before it turns ⚠️ (the operating rules cap a self-chosen wait at 55 minutes) |
 | `classify` | `false` | ask the small model when the heuristics cannot read a long reply |
-| `debugLog` | `""` | absolute path of a file the mod writes its diagnostics to |
+| `debugLog` | `""` | absolute path for the mod's diagnostics; each session writes its own file, the first 8 characters of its id inserted before `.log` |
 
 ## Limits
 
@@ -55,7 +56,8 @@ with "no connected MCP tool", is logged once, and the mod stays quiet.
 - A reload of the mod (an edit, a lost hooks worker) rereads the last reply but cannot see
   background tasks or how the last turn ended, so a ⏳ or ⚠️ session shows ✅ or ❓ until
   its next turn.
-- The glyph is not written before the app has generated the session's title.
+- The glyph is not written before the app has generated the session's title, during a new
+  session's first turn; it follows within one 10-second tick.
 
 ## Develop
 
