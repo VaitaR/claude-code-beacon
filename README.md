@@ -9,6 +9,7 @@ session title, so the sidebar says what every session is doing without opening i
 | ⏳ | waiting | the turn ended with background tasks or a session cron still in flight, or one foreground tool call has run longer than `slowSeconds` |
 | ❓ | needs you | a permission request, `AskUserQuestion` or plan approval is open, or the last reply asks you for a decision, answer or confirmation |
 | ✅ | done | the turn ended, nothing is in flight, the last reply asks for nothing |
+| ⚠️ | error | the turn ended on an API error, rate limit or overflow; an interrupt by you stays ✅ |
 
 The sidebar's own icon column shows the session's kind (pull request, worktree) and only one
 dot for "needs input"; it cannot tell a prose question from a report, nor a session paused on
@@ -51,7 +52,8 @@ with "no connected MCP tool", is logged once, and the mod stays quiet.
   retries once, which that barrier lets through. Exempt the two tools with
   `MCP_REFETCH_EXEMPT=ccd_session_mgmt__(get_session|set_session_title)` to save the extra calls.
 - A reload of the mod (an edit, a lost hooks worker) rereads the last reply but cannot see
-  background tasks, so a ⏳ session shows ✅ or ❓ until its next turn.
+  background tasks or how the last turn ended, so a ⏳ or ⚠️ session shows ✅ or ❓ until
+  its next turn.
 - The glyph is not written before the app has generated the session's title.
 
 ## Develop

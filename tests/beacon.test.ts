@@ -7,6 +7,8 @@ test('a glyph is prefixed once and stripped clean', () => {
   expect(withGlyph('🔵 Fix the parser', 'needs-you')).toBe('❓ Fix the parser')
   expect(withGlyph('⏳ Fix the parser', null)).toBe('Fix the parser')
   expect(stripGlyph('✅ Done thing')).toBe('Done thing')
+  expect(withGlyph('✅ Fix the parser', 'error')).toBe('⚠️ Fix the parser')
+  expect(stripGlyph('⚠️ Fix the parser')).toBe('Fix the parser')
   expect(stripGlyph('No glyph here')).toBe('No glyph here')
 })
 

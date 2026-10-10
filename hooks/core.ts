@@ -1,7 +1,7 @@
 // Pure data: the state table, the title glyph, and the reading of a reply's ending.
 // Nothing here touches `$`, so every rule is testable directly.
 
-export type State = 'working' | 'waiting' | 'needs-you' | 'done'
+export type State = 'working' | 'waiting' | 'needs-you' | 'done' | 'error'
 
 // Blue for the live state: a green dot sat next to the green check and read as the same thing.
 export const GLYPH: Record<State, string> = {
@@ -9,10 +9,11 @@ export const GLYPH: Record<State, string> = {
   waiting: '⏳',
   'needs-you': '❓',
   done: '✅',
+  error: '⚠️',
 }
 
 // Every glyph this mod ever wrote, so a title written by an older version still strips clean.
-const LEADING_GLYPH = /^(?:🔵|🟢|⏳|❓|✅|🔴|⏸)️?\s*/u
+const LEADING_GLYPH = /^(?:🔵|🟢|⏳|❓|✅|⚠|🔴|⏸)️?\s*/u
 
 export const stripGlyph = (title: string) => title.replace(LEADING_GLYPH, '')
 

@@ -233,9 +233,12 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
+    // An interrupt is the person's own doing and needs no flag; an API error, rate limit or
+    // overflow ended the work unfinished and would otherwise pass as done.
     if (e.reason === 'aborted' || e.reason === 'error') {
       endTurn()
-      publish($, 'done')
+      titled = true
+      publish($, e.reason === 'error' ? 'error' : 'done')
     } else await finish($, e.answer, `turn.complete(${e.reason})`)
     return next(e)
   })
