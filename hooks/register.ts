@@ -7,7 +7,9 @@ import {
   inFlightTasks,
   isPlaceholderTitle,
   isSlow,
+  notifiedTasks,
   parseConfig,
+  startedTasks,
   titleOf,
   verdictOf,
   withGlyph,
@@ -111,11 +113,10 @@ function endTurn() {
   inFlight = null
 }
 
-// Background work the main loop started and has not yet been woken for: ids from the Bash and
-// Agent results, cleared by the task notification that opens the next turn.
+// Background work the main loop started and has not yet been notified about: ids from the Bash
+// and Agent results, cleared by the completion notice, which opens the next turn when the model
+// is idle and lands inside a tool result when it is not.
 const pending = new Set<string>()
-const TASK_ID = /(?:background with ID|agentId): ([\w-]+)/g
-const NOTIFIED_ID = /<task-id>([\w-]+)<\/task-id>/g
 const LIVE_AGENT = new Set(['pending', 'running', 'waiting'])
 
 async function inFlightCount($: Engine) {
@@ -156,7 +157,7 @@ export const register: Register = (on, options) => {
     turnActive = true
     asking = false
     inFlight = null
-    for (const m of e.text.matchAll(NOTIFIED_ID)) pending.delete(m[1] ?? '')
+    for (const id of notifiedTasks(e.text)) pending.delete(id)
     publish($, 'working')
     return next(e)
   })
@@ -172,10 +173,9 @@ export const register: Register = (on, options) => {
     if (e.tool === 'TaskStop' && e.task_id !== undefined) pending.delete(e.task_id)
     const ran = await next(e)
     inFlight = null
-    if (ran.deny === undefined && ran.isError !== true) {
-      const text = `${ran.text ?? ''}\n${typeof ran.result === 'string' ? ran.result : JSON.stringify(ran.result ?? '')}`.slice(0, 4000)
-      for (const m of text.matchAll(TASK_ID)) pending.add(m[1] ?? '')
-    }
+    const text = `${ran.text ?? ''}\n${typeof ran.result === 'string' ? ran.result : JSON.stringify(ran.result ?? '')}`
+    if (ran.deny === undefined && ran.isError !== true) for (const id of startedTasks(text)) pending.add(id)
+    for (const id of notifiedTasks(text)) pending.delete(id)
     if (asking) {
       asking = false
       if (turnActive) publish($, 'working')

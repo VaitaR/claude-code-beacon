@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { inFlightTasks, isPlaceholderTitle, isSlow, parseConfig, stripGlyph, titleOf, verdictOf, withGlyph } from '../hooks/core'
+import { inFlightTasks, isPlaceholderTitle, isSlow, notifiedTasks, parseConfig, startedTasks, stripGlyph, titleOf, verdictOf, withGlyph } from '../hooks/core'
 
 test('a glyph is prefixed once and stripped clean', () => {
   expect(withGlyph('Fix the parser', 'working')).toBe('🟢 Fix the parser')
@@ -31,6 +31,16 @@ test('background work and slow calls', () => {
   expect(isSlow({ tool: 'Bash', at: 0 }, 61_000, 60_000)).toBe(true)
   expect(isSlow({ tool: 'Agent', at: 0 }, 600_000, 60_000)).toBe(false)
   expect(isSlow(null, 600_000, 60_000)).toBe(false)
+})
+
+test('task ids are read from results and completion notices alike', () => {
+  expect(startedTasks('Command running in background with ID: brkprpvpv. Output')).toEqual(['brkprpvpv'])
+  expect(startedTasks('Command did not complete within its 120s timeout and was moved to the background (ID: bz49zyar7).')).toEqual(['bz49zyar7'])
+  expect(startedTasks('Agent started in background. agentId: a1b2c3')).toEqual(['a1b2c3'])
+  expect(startedTasks('exit=0')).toEqual([])
+  const notice = 'exit=0\n\n<task-notification>\n<task-id>brkprpvpv</task-id>\n<status>completed</status>\n</task-notification>'
+  expect(notifiedTasks(notice)).toEqual(['brkprpvpv'])
+  expect(notifiedTasks('plain tool output')).toEqual([])
 })
 
 test('config, titles and the MCP result', () => {

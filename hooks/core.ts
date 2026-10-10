@@ -74,6 +74,19 @@ const ENDED = new Set(['completed', 'failed', 'killed', 'done', 'cancelled', 'ca
 export const inFlightTasks = (tasks: ReadonlyArray<{ status: string }> | undefined) =>
   (tasks ?? []).filter(t => !ENDED.has(String(t.status).toLowerCase())).length
 
+// A Bash call started in the background, or moved there on timeout, and an Agent spawn name
+// their task in the result text; the engine's completion notice carries it as <task-id>.
+const STARTED_ID = /(?:background with ID|background \(ID|agentId): ([\w-]+)/g
+const NOTIFIED_ID = /<task-id>([\w-]+)<\/task-id>/g
+const idsIn = (text: string, re: RegExp) => [...text.matchAll(re)].map(m => m[1] ?? '').filter(Boolean)
+
+/** Task ids a tool result announces as started in the background. */
+export const startedTasks = (text: string) => idsIn(text, STARTED_ID)
+
+/** Task ids a completion notice names; it arrives in a turn's opening text or inside a tool
+ *  result, whichever the model was in when the task ended. */
+export const notifiedTasks = (text: string) => idsIn(text, NOTIFIED_ID)
+
 /** Whether a foreground call has run long enough to count as waiting rather than working. */
 export const isSlow = (call: { tool: string; at: number } | null, now: number, slowMs: number) =>
   call !== null && call.tool !== 'Agent' && call.tool !== 'Task' && now - call.at >= slowMs
