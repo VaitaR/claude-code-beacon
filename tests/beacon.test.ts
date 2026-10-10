@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { inFlightTasks, isPlaceholderTitle, isSlow, isStale, notifiedTasks, parseConfig, startedTasks, stripGlyph, titleOf, verdictOf, withGlyph } from '../hooks/core'
+import { inFlightTasks, isPlaceholderTitle, isSlow, isStale, notifiedTasks, parseConfig, sessionOf, startedTasks, statusFileName, statusRecord, stripGlyph, titleOf, verdictOf, withGlyph } from '../hooks/core'
 
 test('a glyph is prefixed once and stripped clean', () => {
   expect(withGlyph('Fix the parser', 'working')).toBe('🔵 Fix the parser')
@@ -62,4 +62,15 @@ test('config, titles and the MCP result', () => {
   expect(isPlaceholderTitle('New session')).toBe(true)
   expect(isPlaceholderTitle('🔵 New session')).toBe(true)
   expect(isPlaceholderTitle('Fix IBC Eureka')).toBe(false)
+})
+
+test('the widget status record carries the app session and a glyph-free title', () => {
+  const got = { content: [{ type: 'text', text: JSON.stringify({ sessionId: 'local_ab-1', cwd: '/r', link: 'claude://x/local_ab-1', isArchived: false, title: '🔵 T' }) }] }
+  const info = sessionOf(got)
+  expect(info).toEqual({ id: 'local_ab-1', cwd: '/r', link: 'claude://x/local_ab-1', archived: false })
+  expect(sessionOf({ content: [{ type: 'text', text: '{"title":"no id"}' }] })).toBe(null)
+  expect(sessionOf({ content: [{ type: 'text', text: 'not json' }] })).toBe(null)
+  expect(JSON.parse(statusRecord(info!, '⏳ Fix it', 'needs-you', false, 5))).toEqual({ ...info, title: 'Fix it', state: 'needs-you', ended: false, updatedAt: 5 })
+  expect(statusFileName('local_ab-1')).toBe('local_ab-1.json')
+  expect(statusFileName('../../etc/x')).toBe('______etc_x.json')
 })

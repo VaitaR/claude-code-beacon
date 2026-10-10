@@ -38,6 +38,26 @@ next message. A process already running when the setting changed never does.
 In a terminal session the app's `ccd_session_mgmt` server is absent: the first rename fails
 with "no connected MCP tool", is logged once, and the mod stays quiet.
 
+## Desktop widget
+
+Each state change also writes `~/.claude/state/beacon/<engine session id>.json` (app session
+id, title without the glyph, cwd, app link, state, `updatedAt`). `widget/` is a native floating panel that lists
+those files: translucent, above other windows, on every Space, no Dock icon.
+
+```sh
+widget/install.sh              # build ~/Applications/BeaconWidget.app, start it now and at login
+widget/install.sh --uninstall
+```
+
+- Rows sort by attention (❓ ⚠️ ⏳ 🔵 ✅); the time is how long the session has been in its state.
+- Click a row to open the session in the app; click the header to collapse to the counts;
+  drag anywhere to move; right-click for opacity, hiding or clearing finished rows, and quit.
+- Hidden: archived sessions, ✅ older than 3 hours, any other state older than 24 hours.
+- A terminal session shows under its folder name and has no link to open.
+- A session whose process dies without `session.end` keeps its last state until the 24-hour
+  cutoff; the archive flag is read only when the mod writes, so archiving an idle session does
+  not hide it.
+
 ## Options (`pluginConfigs.beacon.options`)
 
 | Option | Default | Meaning |

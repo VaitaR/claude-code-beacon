@@ -10,7 +10,11 @@ import {
   isStale,
   notifiedTasks,
   parseConfig,
+  type SessionInfo,
+  sessionOf,
   startedTasks,
+  statusFileName,
+  statusRecord,
   titleOf,
   verdictOf,
   withGlyph,
@@ -35,6 +39,13 @@ let mcpBroken = false
 // A new session's title is generated during its first turn, after turn.start: the tick
 // retries the rename until a title exists.
 let untitled = false
+// What the status file for the desktop widget needs beyond the state: the app's session id and
+// link come from get_session; a terminal session (no app server) has neither. The file itself is
+// named by the engine's session id, the one tools/validate.sh recognises as a live session.
+let info: SessionInfo | null = null
+let lastTitle: string | null = null
+let ended = false
+let statusDir: Promise<string | null> | null = null
 const lines: string[] = []
 // The file outlives a hot reload while `lines` does not: the first write seeds from its tail.
 // One file per session: every session rewrites its whole file, so a shared one loses lines.
@@ -75,30 +86,53 @@ async function callSession($: Engine, tool: string, args: Record<string, unknown
 
 // One rename at a time, in order: two overlapping get/set pairs would race on the title.
 function rename($: Engine, next: State | null) {
-  if (mcpBroken) return
   renaming = renaming.then(async () => {
-    try {
-      const got = await callSession($, 'get_session', { session_id: 'self' })
-      if (got.isError) {
-        debug($, `get_session failed: ${JSON.stringify(got.content).slice(0, 200)}`)
-        return
-      }
-      const title = titleOf(got)
-      if (title === null || isPlaceholderTitle(title)) {
-        if (!untitled) debug($, `no title to prefix: ${JSON.stringify(got.content).slice(0, 120)}`)
-        untitled = true
-        return
-      }
-      untitled = false
-      const wanted = withGlyph(title, next)
-      if (wanted === title) return
-      const set = await callSession($, 'set_session_title', { session_id: 'self', title: wanted })
-      if (set.isError) debug($, `set_session_title failed: ${JSON.stringify(set.content).slice(0, 200)}`)
-      else debug($, `title set: ${wanted}`)
-    } catch (err) {
-      debug($, `rename failed${mcpBroken ? ', going quiet' : ''}: ${err instanceof Error ? err.message : String(err)}`)
-    }
+    if (!mcpBroken) await retitle($, next)
+    await writeStatus($, next)
   })
+}
+
+async function retitle($: Engine, next: State | null) {
+  try {
+    const got = await callSession($, 'get_session', { session_id: 'self' })
+    if (got.isError) {
+      debug($, `get_session failed: ${JSON.stringify(got.content).slice(0, 200)}`)
+      return
+    }
+    info = sessionOf(got) ?? info
+    const title = titleOf(got)
+    if (title !== null) lastTitle = title
+    if (title === null || isPlaceholderTitle(title)) {
+      if (!untitled) debug($, `no title to prefix: ${JSON.stringify(got.content).slice(0, 120)}`)
+      untitled = true
+      return
+    }
+    untitled = false
+    const wanted = withGlyph(title, next)
+    if (wanted === title) return
+    const set = await callSession($, 'set_session_title', { session_id: 'self', title: wanted })
+    if (set.isError) debug($, `set_session_title failed: ${JSON.stringify(set.content).slice(0, 200)}`)
+    else debug($, `title set: ${wanted}`)
+  } catch (err) {
+    debug($, `rename failed${mcpBroken ? ', going quiet' : ''}: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+async function writeStatus($: Engine, next: State | null) {
+  try {
+    statusDir ??= $.env.get('HOME').then(home => (home ? `${home}/.claude/state/beacon` : null))
+    const dir = await statusDir
+    if (dir === null) return
+    if (info === null && mcpBroken) {
+      info = { id: await $.session.id(), cwd: await $.session.cwd(), link: '', archived: false }
+    }
+    if (info === null) return
+    const title = lastTitle ?? info.cwd.split('/').pop() ?? ''
+    const file = statusFileName(await $.session.id())
+    await $.fs.write(`${dir}/${file}`, statusRecord(info, title, next, ended, Date.now()))
+  } catch (err) {
+    debug($, `status write failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 function publish($: Engine, next: State | null) {
@@ -262,7 +296,9 @@ export const register: Register = (on, options) => {
 
   on('session.end', ($, e, next) => {
     // A closed session keeps a verdict glyph (still true of its transcript) but not a live one.
+    ended = true
     if (e.reason === 'clear' || state === 'working' || state === 'waiting') publish($, null)
+    else rename($, state)
     return next(e)
   })
 }

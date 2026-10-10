@@ -116,5 +116,39 @@ export const titleOf = (result: { content: ReadonlyArray<{ type: string; text?: 
   }
 }
 
+export type SessionInfo = { id: string; cwd: string; link: string; archived: boolean }
+
+/** The identity fields of a `get_session` result, or null when it carries no session id. */
+export const sessionOf = (result: { content: ReadonlyArray<{ type: string; text?: string }> }): SessionInfo | null => {
+  const text = result.content.find(c => c.type === 'text')?.text
+  if (!text) return null
+  try {
+    const p = JSON.parse(text) as { sessionId?: unknown; cwd?: unknown; link?: unknown; isArchived?: unknown }
+    if (typeof p.sessionId !== 'string' || p.sessionId === '') return null
+    return {
+      id: p.sessionId,
+      cwd: typeof p.cwd === 'string' ? p.cwd : '',
+      link: typeof p.link === 'string' ? p.link : '',
+      archived: p.isArchived === true,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The line a status file holds for the desktop widget (`widget/`). The file name is the id with
+ * every character outside `[A-Za-z0-9_-]` replaced, so an id can never escape the directory.
+ */
+export const statusFileName = (id: string) => `${id.replace(/[^A-Za-z0-9_-]/g, '_')}.json`
+
+export const statusRecord = (
+  info: SessionInfo,
+  title: string,
+  state: State | null,
+  ended: boolean,
+  now: number,
+) => `${JSON.stringify({ ...info, title: stripGlyph(title), state, ended, updatedAt: now })}\n`
+
 // Titles the app has not named yet: renaming one would freeze it before the app's own title lands.
 export const isPlaceholderTitle = (title: string) => /^(?:new session|untitled|new conversation)$/i.test(stripGlyph(title).trim())
