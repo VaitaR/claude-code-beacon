@@ -56,9 +56,6 @@ final class Model: ObservableObject {
       guard let data = try? Data(contentsOf: file),
             let s = try? JSONDecoder().decode(Status.self, from: data),
             let state = s.state, !s.archived else { return nil }
-      // A terminal session that ended has no process left to return to (headless `claude -p`
-      // runs land here too); an app session that ended still sits in the sidebar.
-      if s.ended && s.link.isEmpty { return nil }
       let ageHours = (nowMs - s.updatedAt) / 3_600_000
       if state == "done" { if !showDone || ageHours > doneHours { return nil } }
       else if ageHours > liveHours { return nil }
@@ -71,6 +68,17 @@ final class Model: ObservableObject {
       return a != b ? a < b : $0.status.updatedAt > $1.status.updatedAt
     }
     if next != rows { rows = next }
+  }
+
+  // A live session writes its file again on its next state change, so it returns then.
+  func dismiss(_ id: String) {
+    let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+    for file in files where file.pathExtension == "json" {
+      if let data = try? Data(contentsOf: file), let s = try? JSONDecoder().decode(Status.self, from: data), s.id == id {
+        try? FileManager.default.removeItem(at: file)
+      }
+    }
+    reload()
   }
 
   func clearFinished() {
@@ -120,7 +128,12 @@ func age(_ ms: Double, _ now: Date) -> String {
 struct RowView: View {
   let row: Row
   let now: Date
+  let dismiss: (String) -> Void
+  #if SNAPSHOT
+  @State private var hover = ProcessInfo.processInfo.environment["BEACON_HOVER"] != nil
+  #else
   @State private var hover = false
+  #endif
 
   var body: some View {
     let s = row.status
@@ -133,7 +146,15 @@ struct RowView: View {
           .lineLimit(1)
       }
       Spacer(minLength: 4)
-      Text(age(s.updatedAt, now)).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
+      if hover {
+        Button { dismiss(s.id) } label: {
+          Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Remove from the list")
+      } else {
+        Text(age(s.updatedAt, now)).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
+      }
     }
     .padding(.horizontal, 8)
     .frame(height: rowHeight)
@@ -183,7 +204,7 @@ struct PanelView: View {
         // The list scrolls past maxListHeight; below it the panel fits its rows exactly.
         ScrollView(.vertical) {
           VStack(alignment: .leading, spacing: rowSpacing) {
-            ForEach(model.rows) { RowView(row: $0, now: model.now) }
+            ForEach(model.rows) { RowView(row: $0, now: model.now, dismiss: model.dismiss) }
           }
         }
         .scrollIndicators(listHeight > maxListHeight ? .automatic : .never)
@@ -262,6 +283,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // BEACON_OPEN=<app session id>: run the row's click action, as a click would.
     if let target = ProcessInfo.processInfo.environment["BEACON_OPEN"],
        let row = model.rows.first(where: { $0.status.id == target }) { open(row.status) }
+    // BEACON_DISMISS=<app session id>: press the row's remove button.
+    if let target = ProcessInfo.processInfo.environment["BEACON_DISMISS"] { model.dismiss(target) }
     DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [self] in
       if let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds),
          let out = ProcessInfo.processInfo.environment["BEACON_SNAPSHOT"] {
