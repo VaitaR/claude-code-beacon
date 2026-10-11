@@ -40,29 +40,9 @@ with "no connected MCP tool", is logged once, and the mod stays quiet.
 
 ## Desktop widget
 
-Each state change also writes `~/.claude/state/beacon/<engine session id>.json` (app session
-id, title without the glyph, cwd, app link, state, `updatedAt`). `widget/` is a native floating panel that lists
-those files: translucent, above other windows, on every Space, no Dock icon.
-
-```sh
-widget/install.sh              # build ~/Applications/BeaconWidget.app, start it now and at login
-widget/install.sh --uninstall
-```
-
-- Rows sort by attention (❓ ⚠️ ⏳ 🔵 ✅); the time is how long the session has been in its state.
-- Click a row to open the session; a dimmed row has nothing to open. The × on a hovered row
-  removes it; a live session comes back on its next state change. Drag the header to move
-  the panel, click it to collapse to the counts; right-click for opacity, hiding or clearing
-  finished rows, and quit. Past 360 points the list scrolls.
-- Hidden: archived sessions, ✅ older than 3 hours, any other state older than 24 hours.
-- A terminal session shows under its folder name. One started inside cmux opens in cmux: the
-  status file also records its workspace, panel and the socket capability token cmux gave the
-  session, because cmux's socket refuses processes started outside it. The token sits in
-  `~/.claude/state` (mode 0700) and is readable by the same processes that could already read
-  it from the session's environment. Any other terminal session has nothing to open.
-- A session whose process dies without `session.end` keeps its last state until the 24-hour
-  cutoff; the archive flag is read only when the mod writes, so archiving an idle session does
-  not hide it.
+Each state change also writes `~/.claude/state/beacon/<engine session id>.json`, which
+`widget/` lists in a floating macOS panel. Setup, behaviour and the facts behind it:
+[widget/README.md](widget/README.md).
 
 ## Options (`pluginConfigs.beacon.options`)
 
