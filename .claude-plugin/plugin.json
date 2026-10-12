@@ -5,6 +5,7 @@
   "author": { "name": "Andrei Shivalin" },
   "license": "MIT",
   "keywords": ["claude-code", "claude-code-mod", "sidebar", "session-status"],
+  "types": "./types/index.d.ts",
   "userConfig": {
     "slowSeconds": {
       "title": "Slow call threshold (seconds)",

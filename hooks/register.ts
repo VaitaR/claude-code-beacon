@@ -23,8 +23,11 @@ import {
 } from './core'
 
 // The desktop app's session server, as `$.mcp.call` names it. A terminal session has none: the
-// first call then fails with "no connected MCP tool", logged once, and the mod goes quiet.
+// first call then fails with "no connected MCP tool", logged once, and the mod goes quiet. A
+// desktop session resumed with history fails the same way at session.start, because the server
+// connects after it: there the failure is transient and the tick retries.
 const SERVER = 'ccd_session_mgmt'
+const DESKTOP_ENTRYPOINT = 'claude-desktop'
 const NO_SERVER = /no connected MCP tool/i
 const ASKING_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
 const TICK_MS = 10_000
@@ -38,9 +41,11 @@ let inFlight: { tool: string; at: number } | null = null
 let waitingSince: number | null = null
 let renaming: Promise<void> = Promise.resolve()
 let mcpBroken = false
-// A new session's title is generated during its first turn, after turn.start: the tick
-// retries the rename until a title exists.
+let desktop = false
+// A new session's title is generated during its first turn, after turn.start, and a resumed
+// session's server connects after session.start: the tick retries the rename until both exist.
 let untitled = false
+let serverLate = false
 // What the status file for the desktop widget needs beyond the state: the app's session id and
 // link come from get_session; a terminal session (no app server) has neither. The file itself is
 // named by the engine's session id, the one tools/validate.sh recognises as a live session.
@@ -79,7 +84,11 @@ async function callSession($: Engine, tool: string, args: Record<string, unknown
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (NO_SERVER.test(message)) {
-      mcpBroken = true
+      if (desktop) {
+        if (!serverLate) debug($, `${SERVER} not connected yet, retrying on the tick`)
+        serverLate = true
+        untitled = true
+      } else mcpBroken = true
       throw err
     }
     debug($, `${tool} refused once, retrying: ${message.slice(0, 160)}`)
@@ -102,6 +111,8 @@ async function retitle($: Engine, next: State | null) {
       debug($, `get_session failed: ${JSON.stringify(got.content).slice(0, 200)}`)
       return
     }
+    if (serverLate) debug($, `${SERVER} connected`)
+    serverLate = false
     info = sessionOf(got) ?? info
     const title = titleOf(got)
     if (title !== null) lastTitle = title
@@ -117,6 +128,7 @@ async function retitle($: Engine, next: State | null) {
     if (set.isError) debug($, `set_session_title failed: ${JSON.stringify(set.content).slice(0, 200)}`)
     else debug($, `title set: ${wanted}`)
   } catch (err) {
+    if (serverLate) return
     debug($, `rename failed${mcpBroken ? ', going quiet' : ''}: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
@@ -183,9 +195,17 @@ function endTurn() {
 // Background work the main loop started and has not yet been notified about: ids from the Bash
 // and Agent results, cleared by the completion notice. That notice is a prompt.submit of
 // origin `task-notification`: the next turn's text when the session is idle, a mid-turn
-// submission when it is not (it never shows in a tool result).
+// submission when it is not (it never shows in a tool result). Mirrored to host state so a hot
+// reload does not forget them.
 const pending = new Set<string>()
+const PENDING = { plugin: 'beacon', key: 'pending' } as const
 const LIVE_AGENT = new Set(['pending', 'running', 'waiting'])
+
+function savePending($: Engine) {
+  void $.state.set(PENDING, [...pending]).catch(err => {
+    debug($, `pending not saved: ${err instanceof Error ? err.message : String(err)}`)
+  })
+}
 
 async function inFlightCount($: Engine) {
   let agents = 0
@@ -210,10 +230,17 @@ export const register: Register = (on, options) => {
   cfg = parseConfig(options)
 
   on('session.start', async ($, e, next) => {
+    desktop = (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) === DESKTOP_ENTRYPOINT
+    try {
+      const { value = [] } = await $.state.get(PENDING)
+      for (const id of value) pending.add(id)
+    } catch (err) {
+      debug($, `pending not restored: ${err instanceof Error ? err.message : String(err)}`)
+    }
     const messages = await $.session.messages()
     const lastAnswer = [...messages].reverse().find(m => m.role === 'assistant')?.text
-    debug($, `loaded: ${messages.length} messages, pending cleared`)
-    if (messages.length > 0) await settle($, lastAnswer)
+    debug($, `loaded: ${messages.length} messages, pending restored: ${[...pending].join(',')}`)
+    if (messages.length > 0) await finish($, lastAnswer, 'load')
     $.clock.every(TICK_MS, () => {
       const now = Date.now()
       if (untitled && state !== null) rename($, state)
@@ -230,7 +257,10 @@ export const register: Register = (on, options) => {
   on('prompt.submit', ($, e, next) => {
     const ids = notifiedTasks(e.text)
     for (const id of ids) pending.delete(id)
-    if (ids.length > 0) debug($, `notified ${e.origin.kind}${e.turnId === undefined ? '' : ' mid-turn'}: ${ids.join(',')}`)
+    if (ids.length > 0) {
+      savePending($)
+      debug($, `notified ${e.origin.kind}${e.turnId === undefined ? '' : ' mid-turn'}: ${ids.join(',')}`)
+    }
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -238,7 +268,9 @@ export const register: Register = (on, options) => {
     turnActive = true
     asking = false
     inFlight = null
-    for (const id of notifiedTasks(e.text)) pending.delete(id)
+    const ids = notifiedTasks(e.text)
+    for (const id of ids) pending.delete(id)
+    if (ids.length > 0) savePending($)
     publish($, 'working')
     return next(e)
   })
@@ -251,12 +283,14 @@ export const register: Register = (on, options) => {
       asking = true
       publish($, 'needs-you')
     }
-    if (e.tool === 'TaskStop' && e.task_id !== undefined) pending.delete(e.task_id)
+    if (e.tool === 'TaskStop' && e.task_id !== undefined && pending.delete(e.task_id)) savePending($)
     const ran = await next(e)
     inFlight = null
     if (ran.deny === undefined && ran.isError !== true) {
       const text = `${ran.text ?? ''}\n${typeof ran.result === 'string' ? ran.result : JSON.stringify(ran.result ?? '')}`
-      for (const id of startedTasks(text)) pending.add(id)
+      const started = startedTasks(text)
+      for (const id of started) pending.add(id)
+      if (started.length > 0) savePending($)
     }
     if (asking) {
       asking = false

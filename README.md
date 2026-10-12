@@ -36,7 +36,9 @@ mod folders). A session picks it up when the app starts its process: a new sessi
 next message. A process already running when the setting changed never does.
 
 In a terminal session the app's `ccd_session_mgmt` server is absent: the first rename fails
-with "no connected MCP tool", is logged once, and the mod stays quiet.
+with "no connected MCP tool", is logged once, and the mod stays quiet. A desktop session
+(`CLAUDE_CODE_ENTRYPOINT=claude-desktop`) resumed with history fails the same way at start,
+because the server connects later; there the 10-second tick retries until it is up.
 
 ## Desktop widget
 
@@ -59,9 +61,12 @@ Each state change also writes `~/.claude/state/beacon/<engine session id>.json`,
   identical MCP call (this repo's `mcp_refetch_barrier.py`) refuses the first attempt; the mod
   retries once, which that barrier lets through. Exempt the two tools with
   `MCP_REFETCH_EXEMPT=ccd_session_mgmt__(get_session|set_session_title)` to save the extra calls.
-- A reload of the mod (an edit, a lost hooks worker) rereads the last reply but cannot see
-  background tasks or how the last turn ended, so a ⏳ or ⚠️ session shows ✅ or ❓ until
-  its next turn.
+- A reload of the mod (an edit, a lost hooks worker) keeps the background task ids in host
+  state (`$.state`, `beacon.pending`) and rereads the last reply, but not how the last turn
+  ended: a ⚠️ session shows ✅ or ❓ until its next turn. A new process starts with no ids,
+  as its tasks died with the old one.
+- A rename at `session.end` fails when the process is already unbound from the app, so a
+  closed session can keep 🔵 or ⏳ until it is opened again.
 - The glyph is not written before the app has generated the session's title, during a new
   session's first turn; it follows within one 10-second tick.
 
