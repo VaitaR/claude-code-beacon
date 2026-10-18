@@ -1,0 +1,35 @@
+{
+  "name": "beacon",
+  "version": "0.1.0",
+  "description": "Beacon: prefixes the session title with one glyph that says what the session is doing (working, waiting on background work, needs your answer, done), so the desktop sidebar reads at a glance",
+  "author": { "name": "Andrei Shivalin" },
+  "license": "MIT",
+  "keywords": ["claude-code", "claude-code-mod", "sidebar", "session-status"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "slowSeconds": {
+      "title": "Slow call threshold (seconds)",
+      "description": "A foreground tool call running longer than this turns the glyph from working to waiting",
+      "type": "number",
+      "default": 60
+    },
+    "staleMinutes": {
+      "title": "Stale wait threshold (minutes)",
+      "description": "A session that ended its turn waiting for background work and has not been woken within this many minutes turns from waiting to error",
+      "type": "number",
+      "default": 60
+    },
+    "classify": {
+      "title": "Classify unclear endings with the small model",
+      "description": "When the heuristics cannot tell whether a long last reply needs your answer, ask the engine's small model (one short completion per turn end). It tends to read a report that mentions a choice as a question.",
+      "type": "boolean",
+      "default": false
+    },
+    "debugLog": {
+      "title": "Debug log file",
+      "description": "Absolute path of a file the mod appends its diagnostics to; empty for none",
+      "type": "string",
+      "default": ""
+    }
+  }
+}
