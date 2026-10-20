@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { cmuxOf, inFlightTasks, isPlaceholderTitle, isSlow, isStale, notifiedTasks, parseConfig, sessionOf, startedTasks, statusFileName, statusRecord, stripGlyph, titleOf, verdictOf, withGlyph } from '../hooks/core'
+import { asksInline, clockOf, cmuxOf, proposes, inFlightTasks, isPlaceholderTitle, isSlow, isStale, launchesTasks, notifiedTasks, parseConfig, sessionOf, startedTasks, statusFileName, statusRecord, stripGlyph, titleOf, verdictOf, withGlyph } from '../hooks/core'
 
 test('a glyph is prefixed once and stripped clean', () => {
   expect(withGlyph('Fix the parser', 'working')).toBe('🔵 Fix the parser')
@@ -46,14 +46,16 @@ test('task ids are read from results and completion notices alike', () => {
   expect(startedTasks('Command did not complete within its 120s timeout and was moved to the background (ID: bz49zyar7).')).toEqual(['bz49zyar7'])
   expect(startedTasks('Agent started in background. agentId: a1b2c3')).toEqual(['a1b2c3'])
   expect(startedTasks('exit=0')).toEqual([])
+  expect(launchesTasks('Bash') && launchesTasks('Agent')).toBe(true)
+  expect(launchesTasks('Read')).toBe(false)
   const notice = 'exit=0\n\n<task-notification>\n<task-id>brkprpvpv</task-id>\n<status>completed</status>\n</task-notification>'
   expect(notifiedTasks(notice)).toEqual(['brkprpvpv'])
   expect(notifiedTasks('plain tool output')).toEqual([])
 })
 
 test('config, titles and the MCP result', () => {
-  expect(parseConfig({})).toEqual({ slowMs: 60_000, staleMs: 3_600_000, classify: false, debugLog: '' })
-  expect(parseConfig({ slowSeconds: 1, staleMinutes: 0, classify: true, debugLog: '/tmp/b.log' })).toEqual({ slowMs: 5_000, staleMs: 60_000, classify: true, debugLog: '/tmp/b.log' })
+  expect(parseConfig({})).toEqual({ slowMs: 60_000, staleMs: 3_600_000, classify: false, markUnread: true, debugLog: '' })
+  expect(parseConfig({ slowSeconds: 1, staleMinutes: 0, classify: true, markUnread: false, debugLog: '/tmp/b.log' })).toEqual({ slowMs: 5_000, staleMs: 60_000, classify: true, markUnread: false, debugLog: '/tmp/b.log' })
   expect(isStale(null, 10_000_000, 3_600_000)).toBe(false)
   expect(isStale(0, 3_599_000, 3_600_000)).toBe(false)
   expect(isStale(0, 3_600_000, 3_600_000)).toBe(true)
@@ -85,4 +87,28 @@ test('a cmux session records where its tab is; any other session records nothing
   const info = { id: 'x', cwd: '/r', link: '', archived: false }
   expect(JSON.parse(statusRecord(info, 'T', 'done', false, 1, c)).cmux).toEqual(c)
   expect('cmux' in JSON.parse(statusRecord(info, 'T', 'done', false, 1))).toBe(false)
+})
+
+test('a settled state carries the clock time it settled at; a live one none', () => {
+  expect(withGlyph('Fix it', 'done', '9:05')).toBe('✅ 9:05 Fix it')
+  expect(withGlyph('✅ 9:05 Fix it', 'working', '9:07')).toBe('🔵 Fix it')
+  expect(withGlyph('🔵 Fix it', 'needs-you', '14:30')).toBe('❓ 14:30 Fix it')
+  // A reload passes no stamp and keeps the one the title already has.
+  expect(withGlyph('❓ 14:30 Fix it', 'done')).toBe('✅ 14:30 Fix it')
+  expect(withGlyph('✅ Fix it', 'done')).toBe('✅ Fix it')
+  expect(stripGlyph('⚠️ 23:59 Fix it')).toBe('Fix it')
+  // A time that is the title's own, with no glyph before it, is kept.
+  expect(stripGlyph('10:00 standup notes')).toBe('10:00 standup notes')
+  expect(withGlyph('10:00 standup notes', 'done', '9:05')).toBe('✅ 9:05 10:00 standup notes')
+  expect(clockOf(new Date(2026, 9, 20, 9, 5).getTime())).toBe('9:05')
+})
+
+test('a session card in the app UI is a question to the person', () => {
+  expect(asksInline('AskUserQuestion', {})).toBe(true)
+  expect(asksInline('mcp__ccd_session__start_session', { initiation: 'offer' })).toBe(true)
+  expect(asksInline('mcp__ccd_session__start_session', { initiation: 'user_asked' })).toBe(false)
+  expect(asksInline('mcp__ccd_session__start_session', { initiation: 'own_initiative' })).toBe(false)
+  expect(proposes('mcp__ccd_session__start_session', { initiation: 'own_initiative' })).toBe(true)
+  expect(proposes('mcp__ccd_session__start_session', { initiation: 'offer' })).toBe(false)
+  expect(asksInline('Bash', { initiation: 'offer' })).toBe(false)
 })

@@ -4,14 +4,19 @@ import {
   type CmuxInfo,
   type Config,
   type State,
+  DISMISS_TASK,
+  asksInline,
   classifyTail,
+  clockOf,
   cmuxOf,
   inFlightTasks,
   isPlaceholderTitle,
   isSlow,
   isStale,
+  launchesTasks,
   notifiedTasks,
   parseConfig,
+  proposes,
   type SessionInfo,
   sessionOf,
   startedTasks,
@@ -28,8 +33,8 @@ import {
 // connects after it: there the failure is transient and the tick retries.
 const SERVER = 'ccd_session_mgmt'
 const DESKTOP_ENTRYPOINT = 'claude-desktop'
+const SIDEBAR = 'ccd_sidebar'
 const NO_SERVER = /no connected MCP tool/i
-const ASKING_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
 const TICK_MS = 10_000
 
 // Module state is lost on a hot reload; session.start then runs again and recomputes it.
@@ -39,6 +44,10 @@ let turnActive = false
 let asking = false
 let inFlight: { tool: string; at: number } | null = null
 let waitingSince: number | null = null
+// The settled state's clock stamp; undefined keeps the one already in the title (a reload).
+let stamp: string | undefined
+// Session cards this turn left for the person to start: the turn then ends on a decision.
+let proposals = 0
 let renaming: Promise<void> = Promise.resolve()
 let mcpBroken = false
 let desktop = false
@@ -122,7 +131,7 @@ async function retitle($: Engine, next: State | null) {
       return
     }
     untitled = false
-    const wanted = withGlyph(title, next)
+    const wanted = withGlyph(title, next, stamp)
     if (wanted === title) return
     const set = await callSession($, 'set_session_title', { session_id: 'self', title: wanted })
     if (set.isError) debug($, `set_session_title failed: ${JSON.stringify(set.content).slice(0, 200)}`)
@@ -160,15 +169,30 @@ async function writeStatus($: Engine, next: State | null) {
   }
 }
 
-function publish($: Engine, next: State | null) {
+function publish($: Engine, next: State | null, reloaded = false) {
   if (next === state) return
   state = next
-  waitingSince = next === 'waiting' ? Date.now() : null
+  const now = Date.now()
+  waitingSince = next === 'waiting' ? now : null
+  stamp = reloaded ? undefined : clockOf(now)
   rename($, next)
 }
 
-async function settle($: Engine, answer: string | undefined) {
+// The app clears the dot when the session is opened, so a settled result reads as unseen until then.
+function markUnread($: Engine) {
+  if (!cfg.markUnread || !desktop || mcpBroken) return
+  void $.mcp
+    .call(SIDEBAR, 'set_unread', { session_id: 'self', unread: true })
+    .then(r => { if (r.isError) debug($, `set_unread failed: ${JSON.stringify(r.content).slice(0, 200)}`) })
+    .catch(err => debug($, `set_unread failed: ${err instanceof Error ? err.message : String(err)}`))
+}
+
+async function settle($: Engine, answer: string | undefined, reloaded: boolean) {
   let verdict = verdictOf(answer)
+  if (proposals > 0 && verdict !== 'needs-you') {
+    debug($, `${proposals} session card(s) left open: needs-you`)
+    verdict = 'needs-you'
+  }
   if (verdict === 'unsure') {
     verdict = 'done'
     if (cfg.classify && answer) {
@@ -183,7 +207,8 @@ async function settle($: Engine, answer: string | undefined) {
       }
     }
   }
-  publish($, verdict)
+  publish($, verdict, reloaded)
+  if (!reloaded) markUnread($)
 }
 
 function endTurn() {
@@ -222,8 +247,9 @@ async function finish($: Engine, answer: string | undefined, via: string) {
   endTurn()
   const count = await inFlightCount($)
   debug($, `${via}: pending=${count} ids=${[...pending].join(',')} answer=${(answer ?? '').length} chars`)
-  if (count > 0) publish($, 'waiting')
-  else await settle($, answer)
+  const reloaded = via === 'load'
+  if (count > 0) publish($, 'waiting', reloaded)
+  else await settle($, answer, reloaded)
 }
 
 export const register: Register = (on, options) => {
@@ -268,6 +294,7 @@ export const register: Register = (on, options) => {
     turnActive = true
     asking = false
     inFlight = null
+    proposals = 0
     const ids = notifiedTasks(e.text)
     for (const id of ids) pending.delete(id)
     if (ids.length > 0) savePending($)
@@ -279,18 +306,26 @@ export const register: Register = (on, options) => {
     if (e.agentId !== undefined) return next(e)
     const tool = String(e.tool)
     inFlight = { tool, at: Date.now() }
-    if (ASKING_TOOLS.has(tool)) {
+    const input = e as { initiation?: unknown }
+    if (asksInline(tool, input)) {
+      debug($, `asking in the app UI: ${tool}`)
       asking = true
       publish($, 'needs-you')
     }
     if (e.tool === 'TaskStop' && e.task_id !== undefined && pending.delete(e.task_id)) savePending($)
     const ran = await next(e)
     inFlight = null
-    if (ran.deny === undefined && ran.isError !== true) {
+    if (ran.deny === undefined && ran.isError !== true && launchesTasks(tool)) {
       const text = `${ran.text ?? ''}\n${typeof ran.result === 'string' ? ran.result : JSON.stringify(ran.result ?? '')}`
       const started = startedTasks(text)
       for (const id of started) pending.add(id)
       if (started.length > 0) savePending($)
+    }
+    if (ran.deny === undefined && ran.isError !== true) {
+      if (proposes(tool, input)) {
+        proposals++
+        debug($, `session card left open (${proposals})`)
+      } else if (tool === DISMISS_TASK && proposals > 0) proposals--
     }
     if (asking) {
       asking = false
@@ -337,6 +372,7 @@ export const register: Register = (on, options) => {
     if (e.reason === 'aborted' || e.reason === 'error') {
       endTurn()
       publish($, e.reason === 'error' ? 'error' : 'done')
+      if (e.reason === 'error') markUnread($)
     } else await finish($, e.answer, `turn.complete(${e.reason})`)
     return next(e)
   })

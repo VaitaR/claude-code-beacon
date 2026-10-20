@@ -12,17 +12,45 @@ export const GLYPH: Record<State, string> = {
   error: '⚠️',
 }
 
-// Every glyph this mod ever wrote, so a title written by an older version still strips clean.
-const LEADING_GLYPH = /^(?:🔵|🟢|⏳|❓|✅|⚠|🔴|⏸)️?\s*/u
+// Every glyph this mod ever wrote, so a title written by an older version still strips clean. The
+// clock stamp is stripped only behind a glyph: a title of its own may start with a time.
+const LEADING_GLYPH = /^(?:🔵|🟢|⏳|❓|✅|⚠|🔴|⏸)️?\s*(?:\d{1,2}:\d{2}\s+)?/u
+const STAMP = /^(?:🔵|🟢|⏳|❓|✅|⚠|🔴|⏸)️?\s*(\d{1,2}:\d{2})\s/u
 
 export const stripGlyph = (title: string) => title.replace(LEADING_GLYPH, '')
 
-export const withGlyph = (title: string, state: State | null) => {
-  const base = stripGlyph(title).trim()
-  return state === null ? base : `${GLYPH[state]} ${base}`
+// Live states change too often to stamp; a settled one keeps the time it settled at.
+const STAMPED = new Set<State>(['needs-you', 'done', 'error'])
+
+/** The local `H:MM` a settled state is stamped with. A title cannot tick, so a clock time, not an age. */
+export const clockOf = (ms: number) => {
+  const d = new Date(ms)
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-export type Config = { slowMs: number; staleMs: number; classify: boolean; debugLog: string }
+/** `stamp` undefined keeps the title's own stamp: a reload re-reads a state, it did not settle it again. */
+export const withGlyph = (title: string, state: State | null, stamp?: string) => {
+  const base = stripGlyph(title).trim()
+  if (state === null) return base
+  const at = STAMPED.has(state) ? (stamp ?? STAMP.exec(title)?.[1]) : undefined
+  return at === undefined ? `${GLYPH[state]} ${base}` : `${GLYPH[state]} ${at} ${base}`
+}
+
+// The app's session-handoff tool. `offer` holds the call open on a "New session / Do it here"
+// card; `own_initiative` leaves a card the person may start after the turn has ended.
+export const START_SESSION = 'mcp__ccd_session__start_session'
+export const DISMISS_TASK = 'mcp__ccd_session__dismiss_task'
+const ASKING_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
+
+/** Whether a tool call is open on a question to the person in the app's own UI. */
+export const asksInline = (tool: string, input: { initiation?: unknown }) =>
+  ASKING_TOOLS.has(tool) || (tool === START_SESSION && input.initiation === 'offer')
+
+/** Whether a call left a session card for the person to start or ignore. */
+export const proposes = (tool: string, input: { initiation?: unknown }) =>
+  tool === START_SESSION && input.initiation === 'own_initiative'
+
+export type Config = { slowMs: number; staleMs: number; classify: boolean; markUnread: boolean; debugLog: string }
 
 export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => ({
   slowMs: Math.max(5, typeof o.slowSeconds === 'number' ? o.slowSeconds : 60) * 1000,
@@ -32,6 +60,7 @@ export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => ({
   // Off by default: the classifier called a long report that merely mentioned a choice a question,
   // twice in one afternoon. The marker line and the question rules are the contract.
   classify: typeof o.classify === 'boolean' ? o.classify : false,
+  markUnread: typeof o.markUnread === 'boolean' ? o.markUnread : true,
   debugLog: typeof o.debugLog === 'string' ? o.debugLog : '',
 })
 
@@ -88,6 +117,11 @@ export const inFlightTasks = (tasks: ReadonlyArray<{ status: string }> | undefin
 const STARTED_ID = /(?:background with ID|background \(ID|agentId): ([\w-]+)/g
 const NOTIFIED_ID = /<task-id>([\w-]+)<\/task-id>/g
 const idsIn = (text: string, re: RegExp) => [...text.matchAll(re)].map(m => m[1] ?? '').filter(Boolean)
+
+// Only these tools start background work. Any other result can quote the announcement (a Read of
+// this mod's own tests did), and a phantom id holds the session in waiting until it goes stale.
+const LAUNCHERS = new Set(['Bash', 'Agent', 'Task'])
+export const launchesTasks = (tool: string) => LAUNCHERS.has(tool)
 
 /** Task ids a tool result announces as started in the background. */
 export const startedTasks = (text: string) => idsIn(text, STARTED_ID)

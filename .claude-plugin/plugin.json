@@ -25,6 +25,12 @@
       "type": "boolean",
       "default": false
     },
+    "markUnread": {
+      "title": "Mark a finished turn unread",
+      "description": "When a turn ends, set the session's blue unread dot in the sidebar; the app clears it when you open the session, so the dot marks results you have not looked at yet",
+      "type": "boolean",
+      "default": true
+    },
     "debugLog": {
       "title": "Debug log file",
       "description": "Absolute path of a file the mod appends its diagnostics to; empty for none",

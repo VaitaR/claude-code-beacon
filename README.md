@@ -7,9 +7,14 @@ session title, so the sidebar says what every session is doing without opening i
 | --- | --- | --- |
 | 🔵 | working | a turn is running |
 | ⏳ | waiting | the turn ended with background tasks or a session cron still in flight, or one foreground tool call has run longer than `slowSeconds` |
-| ❓ | needs you | a permission request, `AskUserQuestion` or plan approval is open, or the last reply asks you for a decision, answer or confirmation |
+| ❓ | needs you | a permission request, `AskUserQuestion`, plan approval or a `start_session` "New session / Do it here" card is open; the turn left a proposed-session card; or the last reply asks you for a decision, answer or confirmation |
 | ✅ | done | the turn ended, nothing is in flight, the last reply asks for nothing |
 | ⚠️ | error | the turn ended on an API error, rate limit or overflow, or a ⏳ session has waited `staleMinutes` without a wake-up; an interrupt by you stays ✅ |
+
+A settled glyph (❓ ✅ ⚠️) is followed by the local time the session settled, `✅ 14:05 Fix the
+parser`: a title cannot tick, so it is a clock time, not an age. A reload keeps the time already
+in the title. With `markUnread` on, a turn that ends ❓, ✅ or ⚠️ also sets the sidebar's blue
+unread dot, so the dot marks results not yet opened; an interrupt by you sets none.
 
 The sidebar's own icon column shows the session's kind (pull request, worktree) and only one
 dot for "needs input"; it cannot tell a prose question from a report, nor a session paused on
@@ -25,8 +30,10 @@ In order, on the last reply's closing lines:
    engine's small model (`$.model.classify`) instead; off by default, because that model
    reads a long report that merely mentions a possible choice as a question.
 
-Tool-driven asks (permission dialogs, `AskUserQuestion`, `ExitPlanMode`) are seen directly and
-need no reading.
+Tool-driven asks (permission dialogs, `AskUserQuestion`, `ExitPlanMode`, a `start_session`
+call with `initiation: "offer"`) are seen directly and need no reading. A `start_session` card
+proposed with `initiation: "own_initiative"` and not withdrawn by `dismiss_task` in the same turn
+makes the turn end ❓.
 
 ## Install
 
@@ -53,6 +60,7 @@ Each state change also writes `~/.claude/state/beacon/<engine session id>.json`,
 | `slowSeconds` | `60` | foreground tool call length that turns 🔵 into ⏳ |
 | `staleMinutes` | `60` | how long a ⏳ session may wait for its wake-up before it turns ⚠️ (the operating rules cap a self-chosen wait at 55 minutes) |
 | `classify` | `false` | ask the small model when the heuristics cannot read a long reply |
+| `markUnread` | `true` | set the sidebar's unread dot when a turn settles |
 | `debugLog` | `""` | absolute path for the mod's diagnostics; each session writes its own file, the first 8 characters of its id inserted before `.log` |
 
 ## Limits
@@ -65,6 +73,10 @@ Each state change also writes `~/.claude/state/beacon/<engine session id>.json`,
   state (`$.state`, `beacon.pending`) and rereads the last reply, but not how the last turn
   ended: a ⚠️ session shows ✅ or ❓ until its next turn. A new process starts with no ids,
   as its tasks died with the old one.
+- A session card's fate is not visible to the mod: a card started or left alone after the turn
+  keeps ❓ until the session's next turn. The open-card count is lost on a reload.
+- Background task ids are read only from Bash and Agent results; any other tool's output may
+  quote the announcement text.
 - A rename at `session.end` fails when the process is already unbound from the app, so a
   closed session can keep 🔵 or ⏳ until it is opened again.
 - The glyph is not written before the app has generated the session's title, during a new
