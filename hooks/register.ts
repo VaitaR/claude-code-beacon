@@ -5,15 +5,19 @@ import {
   type Config,
   type State,
   DISMISS_TASK,
+  WRAP_UP,
+  type WrapUp,
   asksInline,
   classifyTail,
   clockOf,
   cmuxOf,
+  endingOf,
   inFlightTasks,
   isPlaceholderTitle,
   isSlow,
   isStale,
   launchesTasks,
+  mcpFailureOf,
   notifiedTasks,
   parseConfig,
   proposes,
@@ -23,18 +27,20 @@ import {
   statusFileName,
   statusRecord,
   titleOf,
-  verdictOf,
+  turnVerdictOf,
+  unansweredState,
   withGlyph,
+  wrapUpOf,
 } from './core'
 
 // The desktop app's session server, as `$.mcp.call` names it. A terminal session has none: the
 // first call then fails with "no connected MCP tool", logged once, and the mod goes quiet. A
 // desktop session resumed with history fails the same way at session.start, because the server
-// connects after it: there the failure is transient and the tick retries.
+// connects after it: there the failure is transient and the tick retries. A headless child of a
+// desktop session inherits its entrypoint but has no session bound: it goes quiet too.
 const SERVER = 'ccd_session_mgmt'
 const DESKTOP_ENTRYPOINT = 'claude-desktop'
 const SIDEBAR = 'ccd_sidebar'
-const NO_SERVER = /no connected MCP tool/i
 const TICK_MS = 10_000
 
 // Module state is lost on a hot reload; session.start then runs again and recomputes it.
@@ -48,8 +54,12 @@ let waitingSince: number | null = null
 let stamp: string | undefined
 // Session cards this turn left for the person to start: the turn then ends on a decision.
 let proposals = 0
+// The turn's wrap_up call, if it ended on one: its ask decides, its recap stands in for the answer.
+let wrapUp: WrapUp | null = null
 let renaming: Promise<void> = Promise.resolve()
 let mcpBroken = false
+// A headless child (an eval, a worker run) is no session the person sees: no widget entry either.
+let unbound = false
 let desktop = false
 // A new session's title is generated during its first turn, after turn.start, and a resumed
 // session's server connects after session.start: the tick retries the rename until both exist.
@@ -92,7 +102,13 @@ async function callSession($: Engine, tool: string, args: Record<string, unknown
     return await $.mcp.call(SERVER, tool, args)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    if (NO_SERVER.test(message)) {
+    const failure = mcpFailureOf(message)
+    if (failure === 'no-session') {
+      mcpBroken = true
+      unbound = true
+      throw err
+    }
+    if (failure === 'no-server') {
       if (desktop) {
         if (!serverLate) debug($, `${SERVER} not connected yet, retrying on the tick`)
         serverLate = true
@@ -146,7 +162,7 @@ async function writeStatus($: Engine, next: State | null) {
   try {
     statusDir ??= $.env.get('HOME').then(home => (home ? `${home}/.claude/state/beacon` : null))
     const dir = await statusDir
-    if (dir === null) return
+    if (dir === null || unbound) return
     if (info === null && mcpBroken) {
       info = { id: await $.session.id(), cwd: await $.session.cwd(), link: '', archived: false }
     }
@@ -184,11 +200,19 @@ function markUnread($: Engine) {
   void $.mcp
     .call(SIDEBAR, 'set_unread', { session_id: 'self', unread: true })
     .then(r => { if (r.isError) debug($, `set_unread failed: ${JSON.stringify(r.content).slice(0, 200)}`) })
-    .catch(err => debug($, `set_unread failed: ${err instanceof Error ? err.message : String(err)}`))
+    .catch(err => {
+      const message = err instanceof Error ? err.message : String(err)
+      if (mcpFailureOf(message) === 'no-session') {
+        mcpBroken = true
+        unbound = true
+      } else debug($, `set_unread failed: ${message}`)
+    })
 }
 
-async function settle($: Engine, answer: string | undefined, reloaded: boolean) {
-  let verdict = verdictOf(answer)
+async function settle($: Engine, reply: string | undefined, reloaded: boolean) {
+  const answer = endingOf(reply, wrapUp)
+  let verdict = turnVerdictOf(reply, wrapUp)
+  if (wrapUp !== null) debug($, `wrap_up: ask=${wrapUp.ask.length} blocked=${wrapUp.blocked.length} chars: ${verdict}`)
   if (proposals > 0 && verdict !== 'needs-you') {
     debug($, `${proposals} session card(s) left open: needs-you`)
     verdict = 'needs-you'
@@ -295,6 +319,7 @@ export const register: Register = (on, options) => {
     asking = false
     inFlight = null
     proposals = 0
+    wrapUp = null
     const ids = notifiedTasks(e.text)
     for (const id of ids) pending.delete(id)
     if (ids.length > 0) savePending($)
@@ -307,6 +332,7 @@ export const register: Register = (on, options) => {
     const tool = String(e.tool)
     inFlight = { tool, at: Date.now() }
     const input = e as { initiation?: unknown }
+    if (tool === WRAP_UP) wrapUp = wrapUpOf(e as Record<string, unknown>)
     if (asksInline(tool, input)) {
       debug($, `asking in the app UI: ${tool}`)
       asking = true
@@ -367,12 +393,13 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
-    // An interrupt is the person's own doing and needs no flag; an API error, rate limit or
-    // overflow ended the work unfinished and would otherwise pass as done.
-    if (e.reason === 'aborted' || e.reason === 'error') {
+    // An interrupt is the person's own doing and needs no flag; an API error, rate limit,
+    // overflow or refusal ended the work unfinished and would otherwise pass as done.
+    const unanswered = unansweredState(e.reason)
+    if (unanswered !== null) {
       endTurn()
-      publish($, e.reason === 'error' ? 'error' : 'done')
-      if (e.reason === 'error') markUnread($)
+      publish($, unanswered)
+      if (unanswered === 'error') markUnread($)
     } else await finish($, e.answer, `turn.complete(${e.reason})`)
     return next(e)
   })

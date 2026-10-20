@@ -68,13 +68,30 @@ export type Verdict = 'needs-you' | 'done' | 'unsure'
 
 // The explicit convention (README, "How needs you is read"): a reply that needs the person ends with this line.
 const MARKER = /^\s*(?:[*_#>\-\s]*)(?:NEEDS YOU|NEED(?:S)? YOUR (?:DECISION|ANSWER|INPUT|CONFIRMATION|APPROVAL))\b/im
+// Text after the marker (a code block, a closing remark) pushes it out of the closing lines, so the
+// marker alone is looked for over a wider stretch; anchored at line start, a quoted one never counts.
+const MARKER_WINDOW = 2000
 
 // Phrasings of a request for a decision that do not end in a question mark.
 const ASKING_EN =
   /\b(?:should i|shall i|do you want(?: me)?|want me to|would you like|let me know (?:if|whether|which|when)|which (?:option|one|approach|way)|your call|up to you|please (?:approve|confirm|choose|decide|pick|review)|waiting for (?:your|you)|awaiting your|need(?:s)? your (?:approval|decision|confirmation|go-ahead|ok)|confirm (?:before|that|whether|the)|say the word|give me the go-ahead|choose (?:one|between))\b/i
-// Cyrillic kept literal on purpose: these are match patterns for Russian replies.
+// Cyrillic kept literal on purpose: these are match patterns for Russian replies. `\b` does not
+// see Cyrillic letters, so the imperative ends at a lookahead: "подтвердил" is a statement.
 const ASKING_RU =
-  /(?:подтверди|подтвержден|продолж(?:ать|ить)\s*\?|хочешь|хотите|нужно ли|стоит ли|какой (?:вариант|подход|из)|выбери|выберите|жду (?:твоего|вашего|подтверждения|ответа|решения|отмашки)|тво[её] решение|ваше решение|реши(?:те)?,|скажи(?:те)?,? (?:если|какой|что|как)|дай(?:те)? (?:знать|добро)|нужно (?:тво[её]|ваше) (?:решение|подтверждение))/i
+  /(?:подтверди(?:те)?(?![а-яё])|продолж(?:ать|ить)\s*\?|хочешь|хотите|нужно ли|стоит ли|какой (?:вариант|подход|из)|выбери|выберите|жду (?:твоего|вашего|подтверждения|ответа|решения|отмашки)|тво[её] решение|ваше решение|реши(?:те)?,|скажи(?:те)?,? (?:если|какой|что|как)|дай(?:те)? (?:знать|добро)|нужно (?:тво[её]|ваше) (?:решение|подтверждение))/i
+
+// A session postmortem appended after the reply proper: `friction:` first, then `key: value` lines.
+const POSTMORTEM_START = /^[>*_`\-\s]*friction\s*:/i
+const POSTMORTEM_LINE = /^[>*_`\-\s]*[a-z][a-z_-]{0,20}\s*:/i
+
+/** The reply without a trailing postmortem block; unchanged unless every line after `friction:` is a key line. */
+export const withoutPostmortem = (text: string) => {
+  const lines = text.split('\n')
+  const start = lines.findLastIndex(l => POSTMORTEM_START.test(l))
+  if (start < 0) return text
+  const rest = lines.slice(start).filter(l => l.trim() !== '')
+  return rest.every(l => POSTMORTEM_LINE.test(l)) ? lines.slice(0, start).join('\n') : text
+}
 
 const lastLines = (text: string, n: number) =>
   text
@@ -88,11 +105,12 @@ const lastLines = (text: string, n: number) =>
  * a plain report, `unsure` when neither rule fires (a classifier decides then).
  */
 export const verdictOf = (text: string | undefined): Verdict => {
-  const t = (text ?? '').trim()
+  const t = withoutPostmortem((text ?? '').trim()).trim()
   if (t === '') return 'done'
   const tail = lastLines(t, 6)
   if (tail.length === 0) return 'done'
-  if (MARKER.test(tail.join('\n'))) return 'needs-you'
+  const window = t.length <= MARKER_WINDOW ? t : t.slice(t.indexOf('\n', t.length - MARKER_WINDOW) + 1)
+  if (MARKER.test(window)) return 'needs-you'
   const last = tail[tail.length - 1] ?? ''
   if (/\?\s*(?:\*\*|_)?\s*$/.test(last)) return 'needs-you'
   // Unwrapped paragraphs are single lines, so three of them can be most of a reply: only the
@@ -102,6 +120,44 @@ export const verdictOf = (text: string | undefined): Verdict => {
   if (t.length < 400) return 'done'
   return 'unsure'
 }
+
+// The desktop app's end-of-turn tool. A turn that ends on it has no closing text (`turn.complete`
+// carries an empty answer): the recap is the reply, and `ask` / `blocked` are the request.
+export const WRAP_UP = 'mcp__ccd_turn__wrap_up'
+
+export type WrapUp = { recap: string; ask: string; blocked: string }
+
+const field = (v: unknown) => (typeof v === 'string' ? v.trim() : v === true ? 'yes' : '')
+
+export const wrapUpOf = (input: Readonly<Record<string, unknown>>): WrapUp => ({
+  recap: field(input.recap),
+  ask: field(input.ask),
+  blocked: field(input.blocked),
+})
+
+/** The text a turn ended on: its answer, or the wrap_up recap and ask when the answer is empty. */
+export const endingOf = (answer: string | undefined, wrapUp: WrapUp | null) =>
+  (answer ?? '').trim() !== '' || wrapUp === null ? answer : [wrapUp.recap, wrapUp.ask].filter(s => s !== '').join('\n\n')
+
+/** The verdict of a whole turn: a wrap_up that asks or is blocked needs the person outright. */
+export const turnVerdictOf = (answer: string | undefined, wrapUp: WrapUp | null): Verdict =>
+  wrapUp !== null && (wrapUp.ask !== '' || wrapUp.blocked !== '') ? 'needs-you' : verdictOf(endingOf(answer, wrapUp))
+
+/**
+ * The state a turn that ended without an answer settles in, or null when it answered. An interrupt
+ * is the person's own doing; an API error or a refusal ended the work unfinished.
+ */
+export const unansweredState = (reason: string): State | null =>
+  reason === 'aborted' ? 'done' : reason === 'error' || reason === 'refusal' ? 'error' : null
+
+// No app server to call: a terminal session ("no connected MCP tool"), or a headless child that
+// inherited the desktop entrypoint (an eval, a worker run) and has no session bound.
+const NO_SERVER = /no connected MCP tool/i
+const NO_SESSION = /no session is bound in this process/i
+
+/** How an MCP call failure reads: the server is not there yet, never will be, or it refused this call. */
+export const mcpFailureOf = (message: string): 'no-server' | 'no-session' | 'refused' =>
+  NO_SESSION.test(message) ? 'no-session' : NO_SERVER.test(message) ? 'no-server' : 'refused'
 
 /** The text a classifier reads: the reply's last 1,500 characters, enough for its closing paragraph. */
 export const classifyTail = (text: string) => text.trim().slice(-1500)

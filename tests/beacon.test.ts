@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { asksInline, clockOf, cmuxOf, proposes, inFlightTasks, isPlaceholderTitle, isSlow, isStale, launchesTasks, notifiedTasks, parseConfig, sessionOf, startedTasks, statusFileName, statusRecord, stripGlyph, titleOf, verdictOf, withGlyph } from '../hooks/core'
+import { asksInline, clockOf, cmuxOf, endingOf, mcpFailureOf, proposes, inFlightTasks, isPlaceholderTitle, isSlow, isStale, launchesTasks, notifiedTasks, parseConfig, sessionOf, startedTasks, statusFileName, statusRecord, stripGlyph, titleOf, turnVerdictOf, unansweredState, verdictOf, withGlyph, withoutPostmortem, wrapUpOf } from '../hooks/core'
 
 test('a glyph is prefixed once and stripped clean', () => {
   expect(withGlyph('Fix the parser', 'working')).toBe('🔵 Fix the parser')
@@ -111,4 +111,50 @@ test('a session card in the app UI is a question to the person', () => {
   expect(proposes('mcp__ccd_session__start_session', { initiation: 'own_initiative' })).toBe(true)
   expect(proposes('mcp__ccd_session__start_session', { initiation: 'offer' })).toBe(false)
   expect(asksInline('Bash', { initiation: 'offer' })).toBe(false)
+})
+
+test('a turn that ends on wrap_up is read from its ask and recap, not from the empty answer', () => {
+  const asks = wrapUpOf({ recap: 'Merged the fix; CI is green.', ask: 'Delete the old branch?' })
+  expect(turnVerdictOf('', asks)).toBe('needs-you')
+  expect(turnVerdictOf('', wrapUpOf({ recap: 'Rolled back.', blocked: 'The deploy key is missing.' }))).toBe('needs-you')
+  expect(turnVerdictOf('', wrapUpOf({ recap: 'Rolled back.', blocked: true }))).toBe('needs-you')
+  expect(turnVerdictOf('', wrapUpOf({ recap: 'Shipped and verified.', ask: '  ' }))).toBe('done')
+  // The recap stands in for the answer, so its own closing question still counts.
+  expect(turnVerdictOf('', wrapUpOf({ recap: 'Two options remain. Which one do you prefer?' }))).toBe('needs-you')
+  expect(endingOf('', asks)).toBe('Merged the fix; CI is green.\n\nDelete the old branch?')
+  expect(endingOf('Final text.', asks)).toBe('Final text.')
+  expect(turnVerdictOf('Fixed it.', null)).toBe('done')
+})
+
+test('a NEEDS YOU line followed by a postmortem block or a code block still counts', () => {
+  const postmortem = 'Pushed the branch.\n\nNEEDS YOU: run the two commands above.\n\nfriction: none\ncandidate: none: none, evidence: reasoning only\nbrief: fine\nunverified: the cache path\ntooling: none\nused: none\ninapplicable: lesson:L-0001\noutcome: pending'
+  expect(verdictOf(postmortem)).toBe('needs-you')
+  expect(withoutPostmortem(postmortem)).toBe('Pushed the branch.\n\nNEEDS YOU: run the two commands above.\n')
+  // A friction: line followed by prose is not a postmortem block and stays.
+  expect(withoutPostmortem('friction: the build\nthen I fixed it')).toBe('friction: the build\nthen I fixed it')
+  const code = 'Need the trace.\n\nNEEDS YOU: run this and paste the output.\n\n```bash\nperf record -g -p 1234\nperf report --stdio | head -50\nperf script > out.txt\nls -la out.txt\nwc -l out.txt\ngzip out.txt\n```'
+  expect(verdictOf(code)).toBe('needs-you')
+  // Quoted mid-line, the marker is not the convention line.
+  expect(verdictOf(`Added a rule for lines like «NEEDS YOU: pick one» and tests.\n${'Verified line. '.repeat(3)}\nAll green.`)).toBe('done')
+})
+
+test('a Russian statement about confirmation is not a request for one', () => {
+  expect(verdictOf('Гипотеза не подтверждена: пики не связаны с деплоем.')).toBe('done')
+  expect(verdictOf('Пользователь подтвердил миграцию, всё смержено.')).toBe('done')
+  expect(verdictOf('Готово. Подтвердите, что можно мержить.')).toBe('needs-you')
+  expect(verdictOf('Готово. Подтверди.')).toBe('needs-you')
+  expect(verdictOf('Готово. Хочешь, сделаю PR.')).toBe('needs-you')
+})
+
+test('a refusal ends the turn in error, like an API error; an interrupt does not', () => {
+  expect(unansweredState('refusal')).toBe('error')
+  expect(unansweredState('error')).toBe('error')
+  expect(unansweredState('aborted')).toBe('done')
+  expect(unansweredState('answer')).toBe(null)
+})
+
+test('a headless child with no bound session goes quiet instead of retrying', () => {
+  expect(mcpFailureOf('beacon: $.mcp.call is not available in this mode: no session is bound in this process (the REPL has not mounted)')).toBe('no-session')
+  expect(mcpFailureOf('no connected MCP tool named ccd_session_mgmt')).toBe('no-server')
+  expect(mcpFailureOf('Denied by hook: repeated call')).toBe('refused')
 })

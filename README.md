@@ -7,9 +7,9 @@ session title, so the sidebar says what every session is doing without opening i
 | --- | --- | --- |
 | 🔵 | working | a turn is running |
 | ⏳ | waiting | the turn ended with background tasks or a session cron still in flight, or one foreground tool call has run longer than `slowSeconds` |
-| ❓ | needs you | a permission request, `AskUserQuestion`, plan approval or a `start_session` "New session / Do it here" card is open; the turn left a proposed-session card; or the last reply asks you for a decision, answer or confirmation |
+| ❓ | needs you | a permission request, `AskUserQuestion`, plan approval or a `start_session` "New session / Do it here" card is open; the turn left a proposed-session card or ended on a `wrap_up` with an `ask`; or the last reply asks you for a decision, answer or confirmation |
 | ✅ | done | the turn ended, nothing is in flight, the last reply asks for nothing |
-| ⚠️ | error | the turn ended on an API error, rate limit or overflow, or a ⏳ session has waited `staleMinutes` without a wake-up; an interrupt by you stays ✅ |
+| ⚠️ | error | the turn ended on an API error, rate limit, overflow or a refusal, or a ⏳ session has waited `staleMinutes` without a wake-up; an interrupt by you stays ✅ |
 
 A settled glyph (❓ ✅ ⚠️) is followed by the local time the session settled, `✅ 14:05 Fix the
 parser`: a title cannot tick, so it is a clock time, not an age. A reload keeps the time already
@@ -22,9 +22,14 @@ background work from one that is finished. The title is the one row element a mo
 
 ## How "needs you" is read
 
-In order, on the last reply's closing lines:
+A turn that ends on the desktop app's `wrap_up` tool has no closing text of its own: a non-empty
+`ask` or `blocked` makes it ❓ outright, and otherwise its `recap` is read as the reply.
 
-1. the convention line `NEEDS YOU: <what>` (see below);
+In order, on the last reply's closing lines (a trailing postmortem block of `friction:` /
+`key: value` lines is dropped first):
+
+1. the convention line `NEEDS YOU: <what>` (see below), at the start of a line anywhere in the
+   last ~2,000 characters, so a code block after it does not hide it;
 2. a closing line that ends with `?`, or English/Russian phrasings of a request for a decision;
 3. a reply with neither is `done`. With `classify` on, a reply over 400 characters goes to the
    engine's small model (`$.model.classify`) instead; off by default, because that model
