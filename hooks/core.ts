@@ -66,13 +66,13 @@ export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => ({
 
 export type Verdict = 'needs-you' | 'done' | 'unsure'
 
-// The explicit convention (core.md, "Answer shape"): a reply that needs the person ends with this line.
+// The explicit convention (README, "How needs you is read"): a reply that needs the person ends with this line.
 const MARKER = /^\s*(?:[*_#>\-\s]*)(?:NEEDS YOU|NEED(?:S)? YOUR (?:DECISION|ANSWER|INPUT|CONFIRMATION|APPROVAL))\b/im
 
 // Phrasings of a request for a decision that do not end in a question mark.
 const ASKING_EN =
   /\b(?:should i|shall i|do you want(?: me)?|want me to|would you like|let me know (?:if|whether|which|when)|which (?:option|one|approach|way)|your call|up to you|please (?:approve|confirm|choose|decide|pick|review)|waiting for (?:your|you)|awaiting your|need(?:s)? your (?:approval|decision|confirmation|go-ahead|ok)|confirm (?:before|that|whether|the)|say the word|give me the go-ahead|choose (?:one|between))\b/i
-// Cyrillic kept literal on purpose: these are match patterns, listed in tools/cyrillic-allowed.txt.
+// Cyrillic kept literal on purpose: these are match patterns for Russian replies.
 const ASKING_RU =
   /(?:подтверди|подтвержден|продолж(?:ать|ить)\s*\?|хочешь|хотите|нужно ли|стоит ли|какой (?:вариант|подход|из)|выбери|выберите|жду (?:твоего|вашего|подтверждения|ответа|решения|отмашки)|тво[её] решение|ваше решение|реши(?:те)?,|скажи(?:те)?,? (?:если|какой|что|как)|дай(?:те)? (?:знать|добро)|нужно (?:тво[её]|ваше) (?:решение|подтверждение))/i
 

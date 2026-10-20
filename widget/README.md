@@ -7,14 +7,14 @@ translucent, above other windows, on every Space, no Dock icon. One Swift file
 ## Set up on a new machine
 
 1. Prerequisites: macOS 15+ (`WindowDragGesture`), `swiftc` (Xcode Command Line Tools:
-   `xcode-select --install`), the Claude desktop app, this repo cloned to `~/agent-skills`.
+   `xcode-select --install`), the Claude desktop app, this repo cloned to `~/projects/claude-code-beacon`.
 2. Load the mod in every session: in `~/.claude/settings.json`, `env.CLAUDE_CODE_PLUGIN_DIRS`
-   includes `/Users/<you>/agent-skills/mods/beacon` (`:`-separated with other mod folders).
+   includes `/Users/<you>/projects/claude-code-beacon` (`:`-separated with other mod folders).
    Running sessions pick it up on their next process start; see `../README.md`, Install.
 3. Build, install and start at login:
 
    ```sh
-   ~/agent-skills/mods/beacon/widget/install.sh
+   ~/projects/claude-code-beacon/widget/install.sh
    ```
 
    This writes `~/Applications/BeaconWidget.app` (ad-hoc signed) and the LaunchAgent
@@ -54,8 +54,8 @@ Status file, one per session, rewritten on every state change:
 - **Desktop deep link.** `get_session` returns `link: claude://claude.ai/epitaxy/<app session id>`;
   `open` on it focuses that session in the app.
 - **File name = engine session id** (`$.session.id()`), not the app's `local_…` id:
-  `tools/validate.sh` treats a new file under `~/.claude/state` as a test leak unless its name
-  holds a session id found in `~/.claude/projects/*/<id>.jsonl`.
+  it matches the transcript `~/.claude/projects/*/<id>.jsonl`, so a cleanup script can tell a
+  live session's file from a test leak.
 - **cmux.** Its socket defaults to `cmuxOnly` (processes started inside cmux; others get
   "Access denied"). Every process inside cmux gets `CMUX_SOCKET_CAPABILITY`, and that token
   works from outside too, so the widget runs

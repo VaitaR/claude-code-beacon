@@ -57,7 +57,7 @@ let untitled = false
 let serverLate = false
 // What the status file for the desktop widget needs beyond the state: the app's session id and
 // link come from get_session; a terminal session (no app server) has neither. The file itself is
-// named by the engine's session id, the one tools/validate.sh recognises as a live session.
+// named by the engine's session id, the id a cleanup script can match to ~/.claude/projects/*/<id>.jsonl.
 let info: SessionInfo | null = null
 let lastTitle: string | null = null
 let ended = false

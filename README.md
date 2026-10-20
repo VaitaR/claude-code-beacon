@@ -24,7 +24,7 @@ background work from one that is finished. The title is the one row element a mo
 
 In order, on the last reply's closing lines:
 
-1. the convention line `NEEDS YOU: <what>` (see `tools/instructions/core.md`, Answer shape);
+1. the convention line `NEEDS YOU: <what>` (see below);
 2. a closing line that ends with `?`, or English/Russian phrasings of a request for a decision;
 3. a reply with neither is `done`. With `classify` on, a reply over 400 characters goes to the
    engine's small model (`$.model.classify`) instead; off by default, because that model
@@ -35,10 +35,26 @@ call with `initiation: "offer"`) are seen directly and need no reading. A `start
 proposed with `initiation: "own_initiative"` and not withdrawn by `dismiss_task` in the same turn
 makes the turn end ❓.
 
+The first rule is the reliable one. Add this to your `~/.claude/CLAUDE.md` so the model writes
+the line whenever it stops for you:
+
+```markdown
+- Stop only for what needs the person (a decision, an answer, a required approval). End that
+  stop with `NEEDS YOU: <what, one line>`. A reply that needs nothing ends without a question.
+```
+
 ## Install
 
-The desktop app starts sessions without `--plugin-dir`, so the mod loads from
-`CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json` (`env` block, `:`-separated with other
+Inside Claude Code (2.1.287 or later):
+
+```
+/plugin marketplace add VaitaR/claude-code-beacon
+/plugin install beacon@claude-code-beacon
+/reload-plugins
+```
+
+From a clone, for the desktop app: it starts sessions without `--plugin-dir`, so add the clone
+to `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json` (`env` block, `:`-separated with other
 mod folders). A session picks it up when the app starts its process: a new session, or an idle one on its
 next message. A process already running when the setting changed never does.
 
@@ -58,7 +74,7 @@ Each state change also writes `~/.claude/state/beacon/<engine session id>.json`,
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `slowSeconds` | `60` | foreground tool call length that turns 🔵 into ⏳ |
-| `staleMinutes` | `60` | how long a ⏳ session may wait for its wake-up before it turns ⚠️ (the operating rules cap a self-chosen wait at 55 minutes) |
+| `staleMinutes` | `60` | how long a ⏳ session may wait for its wake-up before it turns ⚠️ (keep it above the longest wait you expect a session to schedule) |
 | `classify` | `false` | ask the small model when the heuristics cannot read a long reply |
 | `markUnread` | `true` | set the sidebar's unread dot when a turn settles |
 | `debugLog` | `""` | absolute path for the mod's diagnostics; each session writes its own file, the first 8 characters of its id inserted before `.log` |
@@ -66,9 +82,9 @@ Each state change also writes `~/.claude/state/beacon/<engine session id>.json`,
 ## Limits
 
 - The rename is an MCP call made under your own PreToolUse hooks. A hook that denies a repeated
-  identical MCP call (this repo's `mcp_refetch_barrier.py`) refuses the first attempt; the mod
-  retries once, which that barrier lets through. Exempt the two tools with
-  `MCP_REFETCH_EXEMPT=ccd_session_mgmt__(get_session|set_session_title)` to save the extra calls.
+  identical MCP call refuses the first attempt; the mod retries once. Exempt
+  `ccd_session_mgmt__get_session` and `ccd_session_mgmt__set_session_title` from such a hook to
+  save the extra calls.
 - A reload of the mod (an edit, a lost hooks worker) keeps the background task ids in host
   state (`$.state`, `beacon.pending`) and rereads the last reply, but not how the last turn
   ended: a ⚠️ session shows ✅ or ❓ until its next turn. A new process starts with no ids,
@@ -88,3 +104,7 @@ Each state change also writes `~/.claude/state/beacon/<engine session id>.json`,
 claude plugin validate .
 claude plugin test .
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE).

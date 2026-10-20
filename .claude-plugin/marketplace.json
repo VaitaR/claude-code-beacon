@@ -1,0 +1,17 @@
+{
+  "name": "claude-code-beacon",
+  "metadata": {
+    "description": "beacon: a Claude Code mod that prefixes each desktop session title with a status glyph (working, waiting, needs you, done, error)."
+  },
+  "owner": {
+    "name": "Andrei Shivalin",
+    "url": "https://github.com/VaitaR"
+  },
+  "plugins": [
+    {
+      "name": "beacon",
+      "source": "./",
+      "description": "One status glyph and the settle time at the front of every desktop session title, plus the sidebar unread dot."
+    }
+  ]
+}
