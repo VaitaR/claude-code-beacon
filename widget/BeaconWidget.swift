@@ -30,6 +30,40 @@ struct Row: Identifiable, Equatable {
   var id: String { status.id }
 }
 
+// open-loops attention counts: summary.json is rewritten every 5 min by its scanner.
+struct LoopsSummary: Decodable {
+  let p1: Int
+  let p2: Int
+  let p3: Int
+  let degraded: Bool
+  let scanned_at: String
+}
+
+// `warning` is nil when the counts can be trusted; otherwise it says why they cannot, so a dead
+// scanner never reads as "all clear".
+struct Loops: Equatable {
+  var p1 = 0
+  var p2 = 0
+  var p3 = 0
+  var warning: String? = "tracker stale: no summary"
+}
+
+let loopsURL = URL(string: "http://127.0.0.1:8765/")!
+let loopsMaxAge = 600.0
+
+func parseLoops(_ data: Data?, _ now: Date) -> Loops {
+  guard let data, let s = try? JSONDecoder().decode(LoopsSummary.self, from: data) else { return Loops() }
+  let plain = ISO8601DateFormatter()
+  let fractional = ISO8601DateFormatter()
+  fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+  guard let at = plain.date(from: s.scanned_at) ?? fractional.date(from: s.scanned_at) else {
+    return Loops(p1: s.p1, p2: s.p2, p3: s.p3, warning: "tracker stale: bad scan time")
+  }
+  let warning = s.degraded ? "tracker degraded: a scanner failed"
+    : now.timeIntervalSince(at) > loopsMaxAge ? "tracker stale: last scan \(age(at.timeIntervalSince1970 * 1000, now)) ago" : nil
+  return Loops(p1: s.p1, p2: s.p2, p3: s.p3, warning: warning)
+}
+
 let glyphs = ["needs-you": "❓", "error": "⚠️", "waiting": "⏳", "working": "🔵", "done": "✅"]
 // Attention order: what needs the person first, finished work last.
 let rank = ["needs-you": 0, "error": 1, "waiting": 2, "working": 3, "done": 4]
@@ -42,13 +76,18 @@ let rowSpacing: CGFloat = 2
 final class Model: ObservableObject {
   @Published var rows: [Row] = []
   @Published var now = Date()
+  @Published var loops = Loops()
   @AppStorage("showDone") var showDone = true { willSet { objectWillChange.send() } }
   @AppStorage("compact") var compact = false { willSet { objectWillChange.send() } }
   let dir = ProcessInfo.processInfo.environment["BEACON_STATE_DIR"].map { URL(fileURLWithPath: $0) }
     ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/state/beacon")
+  let loopsFile = ProcessInfo.processInfo.environment["BEACON_LOOPS_SUMMARY"].map { URL(fileURLWithPath: $0) }
+    ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/state/open-loops/summary.json")
 
   func reload() {
     now = Date()
+    let nextLoops = parseLoops(try? Data(contentsOf: loopsFile), now)
+    if nextLoops != loops { loops = nextLoops }
     let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
     let nowMs = now.timeIntervalSince1970 * 1000
     let found = files.filter { $0.pathExtension == "json" }.compactMap { file -> Row? in
@@ -167,6 +206,37 @@ struct RowView: View {
   }
 }
 
+struct LoopsView: View {
+  let loops: Loops
+  #if SNAPSHOT
+  @State private var hover = ProcessInfo.processInfo.environment["BEACON_HOVER"] != nil
+  #else
+  @State private var hover = false
+  #endif
+
+  var body: some View {
+    HStack(spacing: 8) {
+      Text("Loops").font(.system(size: 11, weight: .bold)).foregroundStyle(.secondary)
+      Spacer()
+      if let warning = loops.warning {
+        Text("⚠️ " + (warning.hasPrefix("tracker degraded") ? "degraded" : "stale")).font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(.orange)
+      }
+      // Counts from a distrusted summary are dimmed: they may be out of date.
+      Text("P1 \(loops.p1)").font(.system(size: 12, weight: .bold).monospacedDigit())
+        .foregroundStyle(loops.p1 > 0 ? Color.red : .secondary)
+      Text("P2 \(loops.p2)").font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
+        .opacity(loops.warning == nil ? 1 : 0.5)
+    }
+    .padding(.horizontal, 8).padding(.vertical, 4)
+    .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(hover ? 0.1 : 0)))
+    .contentShape(Rectangle())
+    .onHover { hover = $0 }
+    .onTapGesture { NSWorkspace.shared.open(loopsURL) }
+    .help((loops.warning.map { $0 + " — " } ?? "") + "P1 \(loops.p1), P2 \(loops.p2), P3 \(loops.p3) — click to open the tracker")
+  }
+}
+
 struct PanelView: View {
   @ObservedObject var model: Model
 
@@ -200,6 +270,7 @@ struct PanelView: View {
       .gesture(WindowDragGesture())
       .onTapGesture { model.compact.toggle() }
       .help("Drag to move, click to collapse or expand; right-click for options")
+      LoopsView(loops: model.loops)
       if !model.compact && !model.rows.isEmpty {
         // The list scrolls past maxListHeight; below it the panel fits its rows exactly.
         ScrollView(.vertical) {
@@ -283,6 +354,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // BEACON_OPEN=<app session id>: run the row's click action, as a click would.
     if let target = ProcessInfo.processInfo.environment["BEACON_OPEN"],
        let row = model.rows.first(where: { $0.status.id == target }) { open(row.status) }
+    // BEACON_OPEN_LOOPS=1: run the tracker row's click action.
+    if ProcessInfo.processInfo.environment["BEACON_OPEN_LOOPS"] != nil { NSWorkspace.shared.open(loopsURL) }
     // BEACON_DISMISS=<app session id>: press the row's remove button.
     if let target = ProcessInfo.processInfo.environment["BEACON_DISMISS"] { model.dismiss(target) }
     DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [self] in

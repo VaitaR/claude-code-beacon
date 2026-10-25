@@ -46,6 +46,11 @@ Status file, one per session, rewritten on every state change:
   hovered row deletes its files; a live session returns on its next state change.
 - Drag the header to move, click it to collapse to counts; right-click for opacity,
   hide/clear finished, quit. The list scrolls past 360 points.
+- A **Loops** row under the header (visible when collapsed) shows the open-loops attention
+  counts from `~/.local/state/open-loops/summary.json` (`BEACON_LOOPS_SUMMARY` overrides the
+  path): P1 red when > 0, P2 grey, P3 only in the tooltip. Click opens http://127.0.0.1:8765/.
+- ⚠️ stale / degraded replaces "all clear" when the file is missing, `degraded` is true or
+  `scanned_at` is over 10 min old; the counts then dim, since they may be out of date.
 - Hidden: archived, `state: null`, ✅ older than 3 h, anything else older than 24 h.
 - Two files with the same `id` (an older mod build named files by app id) show as one row, the newest.
 
@@ -81,7 +86,7 @@ BEACON_STATE_DIR=<fixtures dir> BEACON_SNAPSHOT=/tmp/beacon.png /tmp/beacon-snap
 ```
 
 Optional in that build: `BEACON_HOVER=1` draws rows hovered (× visible),
-`BEACON_OPEN=<id>` runs a row's click, `BEACON_DISMISS=<id>` its ×. `BEACON_STATE_DIR` also
+`BEACON_OPEN=<id>` runs a row's click, `BEACON_DISMISS=<id>` its ×, `BEACON_OPEN_LOOPS=1` the Loops row's click. `BEACON_STATE_DIR` also
 works in the installed build. After editing, rerun `install.sh`; mod-side logic is covered by
 `claude plugin test ..`.
 
